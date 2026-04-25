@@ -16,6 +16,7 @@ dependencies = [
   "huggingface_hub<1.0",
   "numpy>=1.26",
   "matplotlib>=3.8",
+  "plotly>=5.20",
   "gradio>=4.44",
   "python-dateutil>=2.9",
 ]

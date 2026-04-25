@@ -131,6 +131,14 @@ class DelegationWorld:
         if isinstance(read_ids, list):
             self._mark_messages_read(st, [str(x) for x in read_ids])
 
+        # Auto-scan: mark the top unread messages as "read" each turn, simulating
+        # the agent observing the rendered observation (which always shows the inbox).
+        unread = [m for m in st.inbox if not m.read and m.id not in st.messages_read_ids]
+        # Sort by priority order then creation time; read the most urgent first.
+        prio_order = {Priority.critical: 0, Priority.high: 1, Priority.medium: 2, Priority.low: 3}
+        unread.sort(key=lambda m: (prio_order.get(m.priority, 9), m.created_turn))
+        self._mark_messages_read(st, [m.id for m in unread[:3]])
+
         # Potential adversary injection at the start of the turn.
         injected = self._maybe_inject_curveball(st)
         if injected is not None:

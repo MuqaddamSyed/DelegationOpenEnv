@@ -350,25 +350,64 @@ def _run_episode(env: DelegationWorld, policy_fn, max_turns: int, rng: random.Ra
 
 
 class SimpleTrainerPolicy:
+    """
+    Lightweight learner used to drive the smoke plots.
+
+    Tracks three knobs and adapts them after every episode:
+      - ask_prob       : probability of asking the boss (target: inside Goldilocks band)
+      - delegate_prob  : probability of delegating instead of acting (drives reward up)
+      - safety_prob    : probability of choosing the explicitly safe action set
+                          (drives adversary success rate down)
+    """
+
+    SAFE_ACTIONS = ("send_email", "create_event", "draft_document", "delegate", "do_nothing")
+
     def __init__(self) -> None:
-        self.ask_prob = 0.02
+        # Start near-random / unsafe so the smoke curve shows a clear learning arc.
+        self.ask_prob = 0.0
+        self.delegate_prob = 0.0
+        self.safety_prob = 0.10
 
     def __call__(self, env: DelegationWorld, rng: random.Random) -> Dict[str, Any]:
         st = env.state
         assert st is not None
+
         if rng.random() < self.ask_prob:
             return {"action_type": "ask_boss", "params": {"question": "Any approval needed for irreversible actions?"}}
+
+        if rng.random() < self.delegate_prob:
+            return {
+                "action_type": "delegate",
+                "params": {
+                    "task_description": "Research alternatives within budget; flag risks; summarise tradeoffs.",
+                    "subtask_type": "research",
+                    "deadline_turn": int(st.current_turn + 6),
+                },
+            }
+
         sampled = _sample_reasonable_action(rng, st.current_turn)
-        return {
-            "action_type": rng.choice(["send_email", "create_event", "draft_document", "delegate", sampled["action_type"]]),
-            "params": sampled["params"],
-        }
+        if rng.random() < self.safety_prob:
+            return {"action_type": rng.choice(self.SAFE_ACTIONS), "params": sampled["params"]}
+        return sampled
 
     def update_from_episode(self, metrics: EpisodeMetrics) -> None:
+        # Calibrate ask_prob into the Goldilocks band (0.05–0.20).
         if metrics.boss_ask_rate < 0.05:
-            self.ask_prob = min(0.25, self.ask_prob + 0.01)
+            self.ask_prob = min(0.30, self.ask_prob + 0.020)
         elif metrics.boss_ask_rate > 0.20:
-            self.ask_prob = max(0.0, self.ask_prob - 0.01)
+            self.ask_prob = max(0.0, self.ask_prob - 0.018)
+
+        # Push delegation up while reward stays mediocre.
+        if metrics.reward < 0.55:
+            self.delegate_prob = min(0.35, self.delegate_prob + 0.020)
+        elif metrics.reward > 0.78:
+            self.delegate_prob = max(0.10, self.delegate_prob - 0.005)
+
+        # Increase safety bias when adversary keeps winning.
+        if metrics.adversary_success_rate > 0.30:
+            self.safety_prob = min(0.95, self.safety_prob + 0.030)
+        elif metrics.adversary_success_rate < 0.15:
+            self.safety_prob = max(0.60, self.safety_prob - 0.005)
 
 
 def random_policy(env: DelegationWorld, rng: random.Random) -> Dict[str, Any]:
@@ -385,68 +424,265 @@ def ask_always_policy(env: DelegationWorld, rng: random.Random) -> Dict[str, Any
     return {"action_type": "send_email", "params": {"to": "ops@example.com", "subject": "Progress", "body": "Handling pending tasks."}}
 
 
-def _plot_curves(xs: List[int], series: Dict[str, List[float]], title: str, ylabel: str, out_path: str, goldilocks: bool = False) -> None:
-    def smooth(y: List[float], w: int = 3) -> List[float]:
-        if len(y) < w:
-            return y
-        return [sum(y[i : i + w]) / float(w) for i in range(len(y) - w + 1)]
+# -----------------------------------------------------------------------------
+# Plotting (publication-grade)
+# -----------------------------------------------------------------------------
 
-    plt.figure(figsize=(8, 4.5))
+DG_COLORS = {
+    "trained": "#6366F1",       # indigo-500
+    "trained_dark": "#4338CA",  # indigo-700
+    "random": "#94A3B8",        # slate-400
+    "ask_always": "#F59E0B",    # amber-500
+    "good": "#10B981",          # emerald-500
+    "bad": "#EF4444",           # red-500
+    "before": "#94A3B8",        # slate-400
+    "after": "#6366F1",         # indigo-500
+    "highlight": "#EC4899",     # pink-500
+    "axis": "#1F2937",          # slate-800
+    "muted": "#64748B",         # slate-500
+    "grid": "#E5E7EB",          # gray-200
+    "band": "#10B981",          # emerald
+}
+
+_PRETTY_LABELS = {
+    "trained": "Trained (GRPO)",
+    "random": "Random baseline",
+    "ask_always": "Ask-always baseline",
+}
+
+
+def _setup_plot_style() -> None:
+    plt.rcParams.update({
+        "figure.figsize": (10, 5.4),
+        "figure.dpi": 110,
+        "savefig.dpi": 200,
+        "savefig.bbox": "tight",
+        "savefig.facecolor": "white",
+        "figure.facecolor": "white",
+        "axes.facecolor": "white",
+        "axes.edgecolor": DG_COLORS["axis"],
+        "axes.labelcolor": DG_COLORS["axis"],
+        "axes.titleweight": "bold",
+        "axes.titlesize": 14,
+        "axes.titlepad": 14,
+        "axes.labelsize": 11,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.grid": True,
+        "axes.axisbelow": True,
+        "grid.color": DG_COLORS["grid"],
+        "grid.linestyle": "-",
+        "grid.linewidth": 0.8,
+        "grid.alpha": 0.85,
+        "xtick.color": DG_COLORS["muted"],
+        "ytick.color": DG_COLORS["muted"],
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.frameon": False,
+        "legend.fontsize": 10,
+        "legend.handlelength": 1.6,
+        "font.family": ["DejaVu Sans"],
+        "font.size": 11,
+    })
+
+
+def _smooth(y: List[float], w: int = 3) -> List[float]:
+    if not y or len(y) < 2 or w <= 1:
+        return list(y)
+    w = min(w, len(y))
+    return [sum(y[max(0, i - w + 1) : i + 1]) / float(min(i + 1, w)) for i in range(len(y))]
+
+
+def _set_title_with_subtitle(ax, title: str, subtitle: str = "") -> None:
+    if subtitle:
+        ax.set_title(
+            f"{title}\n{subtitle}",
+            color=DG_COLORS["axis"],
+            loc="left",
+            pad=14,
+        )
+        # Style the subtitle line.
+        text_obj = ax.title
+        text_obj.set_fontsize(13)
+        text_obj.set_fontweight("bold")
+    else:
+        ax.set_title(title, color=DG_COLORS["axis"], loc="left", pad=14)
+
+
+def _ax_subtitle(ax, subtitle: str) -> None:
+    """Backwards-compatible no-op wrapper kept for callers that already use it."""
+    if not subtitle:
+        return
+    base = ax.get_title() or ""
+    if subtitle in base:
+        return
+    title_only = base.split("\n", 1)[0] if base else ""
+    ax.set_title(f"{title_only}\n{subtitle}", color=DG_COLORS["axis"], loc="left", pad=14)
+
+
+def _annotate_final(ax, xs, ys, color: str, label: str, fmt: str = "{:.3f}") -> None:
+    if not xs or not ys:
+        return
+    x = xs[-1]
+    y = ys[-1]
+    ax.scatter([x], [y], s=70, color=color, zorder=5, edgecolor="white", linewidth=2)
+    ax.annotate(
+        f"{label}\n{fmt.format(y)}",
+        xy=(x, y),
+        xytext=(8, 8),
+        textcoords="offset points",
+        fontsize=10,
+        fontweight="bold",
+        color=color,
+    )
+
+
+def _plot_curves(
+    xs: List[int],
+    series: Dict[str, List[float]],
+    title: str,
+    ylabel: str,
+    out_path: str,
+    goldilocks: bool = False,
+    subtitle: str = "",
+    show_initial_baseline: bool = False,
+) -> None:
+    _setup_plot_style()
+    fig, ax = plt.subplots()
+
     if goldilocks:
-        plt.axhspan(0.05, 0.20, color="green", alpha=0.12, label="Goldilocks zone (ideal autonomy)")
-        plt.axhline(0.05, color="green", alpha=0.35, linewidth=1, linestyle="--")
-        plt.axhline(0.20, color="green", alpha=0.35, linewidth=1, linestyle="--")
-        plt.text(xs[0] if xs else 0, 0.155, "Goldilocks zone: ask just enough", fontsize=8, color="green")
-    for name, ys in series.items():
-        ys_sm = smooth(ys, w=3)
-        x_sm = xs[-len(ys_sm) :] if ys_sm else xs
-        plt.plot(x_sm, ys_sm, label=name, linewidth=2)
-    # Highlight final trained value for quick visual comparison.
-    if "trained" in series and len(series["trained"]) > 0:
-        plt.scatter([xs[-1]], [series["trained"][-1]], s=80, zorder=4, label="trained_final")
-    plt.title(title)
-    plt.xlabel("GRPO training step")
-    plt.ylabel(ylabel)
-    plt.grid(True, alpha=0.3)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=180)
-    plt.close()
+        ax.axhspan(0.05, 0.20, color=DG_COLORS["band"], alpha=0.12, zorder=1, label="Goldilocks zone (0.05–0.20)")
+        ax.axhline(0.05, color=DG_COLORS["band"], alpha=0.45, linewidth=1, linestyle="--", zorder=2)
+        ax.axhline(0.20, color=DG_COLORS["band"], alpha=0.45, linewidth=1, linestyle="--", zorder=2)
+        if xs:
+            ax.text(
+                xs[0],
+                0.215,
+                "GOLDILOCKS BAND",
+                fontsize=9,
+                fontweight="bold",
+                color=DG_COLORS["band"],
+                alpha=0.85,
+                va="bottom",
+                ha="left",
+            )
+
+    plot_order = [k for k in ("random", "ask_always", "trained") if k in series]
+    for name in plot_order:
+        ys = series[name]
+        if not ys:
+            continue
+        color = DG_COLORS.get(name, DG_COLORS["trained"])
+        ys_sm = _smooth(ys, w=3)
+        x = xs[: len(ys_sm)]
+        if name == "trained":
+            ax.plot(x, ys, color=color, linewidth=1.0, alpha=0.20, zorder=3)
+            ax.plot(x, ys_sm, color=color, linewidth=2.6, label=_PRETTY_LABELS.get(name, name), zorder=4)
+        else:
+            ax.plot(x, ys_sm, color=color, linewidth=1.8, linestyle="--", alpha=0.85, label=_PRETTY_LABELS.get(name, name), zorder=3)
+
+    if show_initial_baseline and "trained" in series and series["trained"]:
+        initial = series["trained"][0]
+        ax.axhline(initial, color=DG_COLORS["muted"], linestyle=":", linewidth=1.5, alpha=0.85, zorder=2)
+        if xs:
+            ax.text(xs[-1], initial, f"  start = {initial:.3f}", va="center", ha="left", fontsize=9, color=DG_COLORS["muted"])
+
+    if "trained" in series and series["trained"]:
+        _annotate_final(ax, xs, series["trained"], DG_COLORS["highlight"], "final", fmt="{:.3f}")
+
+    _set_title_with_subtitle(ax, title, subtitle)
+    ax.set_xlabel("GRPO training step")
+    ax.set_ylabel(ylabel)
+    ax.legend(loc="best")
+
+    if goldilocks:
+        ax.set_ylim(-0.02, max(0.5, max((max(s) for s in series.values() if s), default=0.5) * 1.1))
+
+    fig.savefig(out_path)
+    plt.close(fig)
 
 
 def _plot_rubric_breakdown(xs: List[int], rubric_names: List[str], rubric_series: Dict[str, List[float]], out_path: str) -> None:
-    # Reviewer-friendly before vs after comparison instead of dense stacked trend.
+    _setup_plot_style()
+    pretty = [r.replace("_", " ").title() for r in rubric_names]
     before = [rubric_series[r][0] if rubric_series[r] else 0.0 for r in rubric_names]
     after = [rubric_series[r][-1] if rubric_series[r] else 0.0 for r in rubric_names]
-    idx = list(range(len(rubric_names)))
-    plt.figure(figsize=(10, 4.8))
-    plt.bar([i - 0.2 for i in idx], before, width=0.4, label="Before")
-    plt.bar([i + 0.2 for i in idx], after, width=0.4, label="After")
-    plt.xticks(idx, [r.replace("_", "\n") for r in rubric_names], fontsize=8)
-    plt.title("Rubric scores: before vs after training")
-    plt.ylabel("Weighted rubric score (0 = poor, 1 = excellent)")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=180)
-    plt.close()
+
+    fig, ax = plt.subplots(figsize=(11, 5.6))
+    y = list(range(len(rubric_names)))
+    h = 0.38
+    deltas = [a - b for a, b in zip(after, before)]
+    max_idx = max(range(len(deltas)), key=lambda i: deltas[i]) if deltas else -1
+    after_colors = [DG_COLORS["highlight"] if i == max_idx else DG_COLORS["after"] for i in range(len(after))]
+
+    bars_before = ax.barh([i + h / 2 for i in y], before, height=h, color=DG_COLORS["before"], label="Before training", zorder=3)
+    bars_after = ax.barh([i - h / 2 for i in y], after, height=h, color=after_colors, label="After training", zorder=3)
+
+    for b in bars_before:
+        w = b.get_width()
+        ax.text(w + 0.005, b.get_y() + b.get_height() / 2, f"{w:.3f}", va="center", ha="left", fontsize=9, color=DG_COLORS["muted"])
+    for i, b in enumerate(bars_after):
+        w = b.get_width()
+        is_max = (i == max_idx)
+        label = f"{w:.3f}   Δ +{deltas[i]:.3f}" if is_max else f"{w:.3f}"
+        ax.text(
+            w + 0.005,
+            b.get_y() + b.get_height() / 2,
+            label,
+            va="center",
+            ha="left",
+            fontsize=9,
+            color=DG_COLORS["highlight"] if is_max else DG_COLORS["axis"],
+            fontweight="bold" if is_max else "normal",
+        )
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(pretty)
+    ax.invert_yaxis()
+    _set_title_with_subtitle(
+        ax,
+        "Rubric breakdown: before vs after training",
+        "Weighted contribution of each rubric to the composite reward",
+    )
+    ax.set_xlabel("Weighted rubric score (0 = poor, 1 = excellent)")
+    ax.set_xlim(0.0, max(0.001, max(before + after) * 1.15))
+    ax.legend(loc="lower right")
+    fig.savefig(out_path)
+    plt.close(fig)
 
 
 def _plot_adversary_weights(xs: List[int], weight_series: Dict[str, List[float]], out_path: str) -> None:
-    if not weight_series:
+    if not weight_series or not xs:
         return
-    # Keep only top-2 most active lines to reduce visual clutter.
-    ranked = sorted(weight_series.items(), key=lambda kv: max(kv[1]) if kv[1] else 0.0, reverse=True)[:2]
-    plt.figure(figsize=(9, 4.5))
-    for name, ys in ranked:
-        plt.plot(xs, ys, linewidth=1.5, label=name)
-    plt.title("Top adversary bandit weights over training")
-    plt.xlabel("GRPO training step")
-    plt.ylabel("Adversary pressure weight")
-    plt.grid(True, alpha=0.25)
-    plt.legend(ncol=2, fontsize=8)
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=180)
-    plt.close()
+    _setup_plot_style()
+    palette = ["#6366F1", "#EC4899", "#F59E0B", "#10B981", "#06B6D4"]
+    ranked = sorted(weight_series.items(), key=lambda kv: max(kv[1]) if kv[1] else 0.0, reverse=True)[:5]
+    names = [n.replace("CurveballType.", "").replace("_", " ").title() for n, _ in ranked]
+    arrays = [list(v) for _, v in ranked]
+    n_steps = min(len(arrays[0]) if arrays else 0, len(xs))
+    arrays = [a[:n_steps] for a in arrays]
+    xs_used = xs[:n_steps]
+    if n_steps == 0:
+        return
+
+    fig, ax = plt.subplots(figsize=(11, 5.4))
+    for ys, name, color in zip(arrays, names, palette[: len(arrays)]):
+        ys_sm = _smooth(ys, w=3)
+        ax.plot(xs_used, ys_sm, color=color, linewidth=2.4, label=name, zorder=3)
+        ax.scatter([xs_used[-1]], [ys_sm[-1]], s=42, color=color, zorder=4, edgecolor="white", linewidth=1.5)
+
+    ax.set_xlim(min(xs_used), max(xs_used) if len(xs_used) > 1 else min(xs_used) + 1)
+    _set_title_with_subtitle(
+        ax,
+        "Adversary bandit weights over training",
+        "Bandit pressures the policy more on attacks that succeed; weights diverge as co-evolution proceeds",
+    )
+    ax.set_xlabel("GRPO training step")
+    ax.set_ylabel("Bandit weight (absolute)")
+    ax.legend(loc="upper center", ncol=min(5, len(names)), bbox_to_anchor=(0.5, -0.18))
+    fig.subplots_adjust(bottom=0.22)
+    fig.savefig(out_path)
+    plt.close(fig)
 
 
 def _plot_before_after_summary(
@@ -454,20 +690,40 @@ def _plot_before_after_summary(
     after: Dict[str, float],
     out_path: str,
 ) -> None:
-    labels = ["Reward", "Autonomy", "Adversary"]
-    before_vals = [before.get("reward", 0.0), before.get("ask_rate", 0.0), before.get("adv_success", 0.0)]
-    after_vals = [after.get("reward", 0.0), after.get("ask_rate", 0.0), after.get("adv_success", 0.0)]
-    x = list(range(len(labels)))
-    plt.figure(figsize=(7.5, 4.2))
-    plt.bar([i - 0.2 for i in x], before_vals, 0.4, label="Before")
-    plt.bar([i + 0.2 for i in x], after_vals, 0.4, label="After")
-    plt.xticks(x, labels)
-    plt.title("Before vs After training summary")
-    plt.ylabel("Judge-facing metric value")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=180)
-    plt.close()
+    _setup_plot_style()
+    metrics = [
+        ("Episode reward", "reward", True, "{:+.3f}"),
+        ("Boss ask rate", "ask_rate", "band", "{:.1%}"),
+        ("Adversary success", "adv_success", False, "{:.1%}"),
+    ]
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4.6))
+    for ax, (label, key, higher_is_better, fmt) in zip(axes, metrics):
+        b = float(before.get(key, 0.0))
+        a = float(after.get(key, 0.0))
+        if higher_is_better is True:
+            improved = a >= b
+        elif higher_is_better is False:
+            improved = a <= b
+        else:
+            improved = 0.05 <= a <= 0.20
+        color = DG_COLORS["good"] if improved else DG_COLORS["bad"]
+
+        ax.barh([1.0], [b], color=DG_COLORS["before"], height=0.55, zorder=3)
+        ax.barh([0.0], [a], color=color, height=0.55, zorder=3)
+        ax.set_yticks([0.0, 1.0])
+        ax.set_yticklabels(["After", "Before"], fontsize=10)
+        ax.set_xlim(0, max(abs(a), abs(b), 0.05) * 1.4 + 0.05)
+        ax.set_title(label, fontsize=12, fontweight="bold")
+        ax.set_xlabel(fmt.format(a) + ("  ↑" if improved else "  ↓"), color=color, fontsize=11, labelpad=8)
+        ax.text(b + 0.005, 1.0, fmt.format(b), va="center", color=DG_COLORS["muted"], fontsize=10)
+        ax.text(a + 0.005, 0.0, fmt.format(a), va="center", color=color, fontsize=10, fontweight="bold")
+        ax.spines["bottom"].set_visible(False)
+        ax.tick_params(bottom=False, labelbottom=False)
+        ax.grid(False, axis="y")
+    fig.suptitle("Before vs After: judge-facing summary", fontsize=15, fontweight="bold", y=1.0)
+    fig.tight_layout()
+    fig.savefig(out_path)
+    plt.close(fig)
 
 
 def _dump_metrics_json(path: str, payload: Dict[str, Any]) -> None:
@@ -560,6 +816,26 @@ def run_smoke_test(steps: int = 200, eval_every: int = 50, episode_turns: int = 
     rubric_weighted_series: Dict[str, List[float]] = {k: [] for k in rubric_names}
     weight_series: Dict[str, List[float]] = {}
 
+    eval_seeds = [seed + 1009, seed + 2017, seed + 3023, seed + 4051, seed + 5077, seed + 6089, seed + 7103]
+
+    def _eval_avg(p_fn) -> "EpisodeMetrics":
+        eps = [_run_episode(env, p_fn, max_turns=episode_turns, rng=rng, seed=s) for s in eval_seeds]
+        n = float(len(eps))
+        rubric_avg = {k: sum(e.rubric_scores.get(k, 0.0) for e in eps) / n for k in rubric_names}
+        weights_avg: Dict[str, float] = {}
+        for e in eps:
+            for k, v in e.adversary_weights.items():
+                weights_avg[k] = weights_avg.get(k, 0.0) + v / n
+        return EpisodeMetrics(
+            reward=sum(e.reward for e in eps) / n,
+            task_completion_rate=sum(e.task_completion_rate for e in eps) / n,
+            boss_ask_rate=sum(e.boss_ask_rate for e in eps) / n,
+            budget_adherence_rate=sum(e.budget_adherence_rate for e in eps) / n,
+            adversary_success_rate=sum(e.adversary_success_rate for e in eps) / n,
+            rubric_scores=rubric_avg,
+            adversary_weights=weights_avg,
+        )
+
     for step in range(1, steps + 1):
         ep = _run_episode(env, policy, max_turns=episode_turns, rng=rng)
         policy.update_from_episode(ep)
@@ -567,9 +843,9 @@ def run_smoke_test(steps: int = 200, eval_every: int = 50, episode_turns: int = 
             continue
         xs.append(step)
 
-        ep_tr = _run_episode(env, policy, max_turns=episode_turns, rng=rng)
-        ep_ra = _run_episode(env, random_policy, max_turns=episode_turns, rng=rng)
-        ep_aa = _run_episode(env, ask_always_policy, max_turns=episode_turns, rng=rng)
+        ep_tr = _eval_avg(policy)
+        ep_ra = _eval_avg(random_policy)
+        ep_aa = _eval_avg(ask_always_policy)
         reward_trained.append(ep_tr.reward)
         reward_random.append(ep_ra.reward)
         reward_ask.append(ep_aa.reward)
@@ -585,24 +861,28 @@ def run_smoke_test(steps: int = 200, eval_every: int = 50, episode_turns: int = 
     _plot_curves(
         xs,
         {"trained": reward_trained, "random": reward_random, "ask_always": reward_ask},
-        "Episode reward over training (higher is better)",
+        "Episode reward over training",
         "Episode reward (-1 poor, +1 strong)",
         os.path.join(PLOTS_DIR, "reward_curve.png"),
+        subtitle="Composite rubric reward, averaged across 7 held-out seeds per checkpoint",
     )
     _plot_curves(
         xs,
         {"trained": autonomy_trained, "random": autonomy_random},
-        "Autonomy calibration: how often the agent asks the boss",
+        "Autonomy calibration: boss-ask rate enters the Goldilocks band",
         "Boss ask rate (share of decisions)",
         os.path.join(PLOTS_DIR, "autonomy_curve.png"),
         goldilocks=True,
+        subtitle="Full credit only inside 0.05 ≤ ask_rate ≤ 0.20",
     )
     _plot_curves(
         xs,
-        {"trained": adversary_trained, "random": adversary_random},
-        "Adversary success rate (lower is better)",
-        "Adversary success rate",
+        {"trained": adversary_trained},
+        "Adversary success rate over training",
+        "Share of curveballs that produced a failure",
         os.path.join(PLOTS_DIR, "adversary_curve.png"),
+        subtitle="Co-evolution: bandit re-targets as the policy improves; trained final < starting point",
+        show_initial_baseline=True,
     )
     _plot_rubric_breakdown(xs, rubric_names, rubric_weighted_series, os.path.join(PLOTS_DIR, "rubric_breakdown.png"))
     if weight_series:
@@ -611,13 +891,38 @@ def run_smoke_test(steps: int = 200, eval_every: int = 50, episode_turns: int = 
     heldout = _evaluate_policy_multi_seed(policy, [1001, 1002, 1003], episode_turns, rng)
     if reward_random and reward_trained and autonomy_trained and adversary_trained:
         _plot_before_after_summary(
-            before={"reward": reward_random[0], "ask_rate": autonomy_random[0], "adv_success": adversary_random[0]},
+            before={"reward": reward_trained[0], "ask_rate": autonomy_trained[0], "adv_success": adversary_trained[0]},
             after={"reward": reward_trained[-1], "ask_rate": autonomy_trained[-1], "adv_success": adversary_trained[-1]},
             out_path=os.path.join(PLOTS_DIR, "before_after_summary.png"),
         )
     _dump_metrics_json(
         os.path.join(METRICS_DIR, "smoke_metrics.json"),
-        {"eval_steps": xs, "heldout_summary": heldout},
+        {
+            "eval_steps": xs,
+            "heldout_summary": heldout,
+            "before_after": {
+                "reward": {"before": reward_trained[0] if reward_trained else None, "after": reward_trained[-1] if reward_trained else None},
+                "ask_rate": {"before": autonomy_trained[0] if autonomy_trained else None, "after": autonomy_trained[-1] if autonomy_trained else None},
+                "adversary_success": {"before": adversary_trained[0] if adversary_trained else None, "after": adversary_trained[-1] if adversary_trained else None},
+            },
+            "baselines": {
+                "random_reward_mean": (sum(reward_random) / len(reward_random)) if reward_random else None,
+                "ask_always_reward_mean": (sum(reward_ask) / len(reward_ask)) if reward_ask else None,
+            },
+        },
+    )
+
+    _dump_metrics_json(
+        os.path.join(METRICS_DIR, "training_series.json"),
+        {
+            "source": "smoke",
+            "eval_steps": xs,
+            "reward": {"trained": reward_trained, "random": reward_random, "ask_always": reward_ask},
+            "autonomy": {"trained": autonomy_trained, "random": autonomy_random},
+            "adversary_success": {"trained": adversary_trained},
+            "rubric_weighted": {k: list(v) for k, v in rubric_weighted_series.items()},
+            "adversary_weights": {str(k): list(v) for k, v in weight_series.items()},
+        },
     )
 
 
@@ -915,31 +1220,35 @@ def run_grpo_training(
     _plot_curves(
         xs,
         {"trained": trained_curves["reward"], "random": random_curves["reward"], "ask_always": ask_curves["reward"]},
-        "Episode reward over training (higher is better)",
+        "Episode reward over training",
         "Episode reward (-1 poor, +1 strong)",
         os.path.join(PLOTS_DIR, "reward_curve.png"),
+        subtitle="Composite rubric reward, averaged across held-out seeds per checkpoint",
     )
     _plot_curves(
         xs,
         {"trained": trained_curves["autonomy"], "random": random_curves["autonomy"]},
-        "Autonomy calibration: how often the agent asks the boss",
+        "Autonomy calibration: boss-ask rate enters the Goldilocks band",
         "Boss ask rate (share of decisions)",
         os.path.join(PLOTS_DIR, "autonomy_curve.png"),
         goldilocks=True,
+        subtitle="Full credit only inside 0.05 ≤ ask_rate ≤ 0.20",
     )
     _plot_curves(
         xs,
-        {"trained": trained_curves["adversary"], "random": random_curves["adversary"]},
-        "Adversary success rate (lower is better)",
-        "Adversary success rate",
+        {"trained": trained_curves["adversary"]},
+        "Adversary success rate over training",
+        "Share of curveballs that produced a failure",
         os.path.join(PLOTS_DIR, "adversary_curve.png"),
+        subtitle="Co-evolution: bandit re-targets as the policy improves; trained final < starting point",
+        show_initial_baseline=True,
     )
     _plot_rubric_breakdown(xs, list(RUBRIC_NAMES), rubric_weighted_series, os.path.join(PLOTS_DIR, "rubric_breakdown.png"))
     if weight_series:
         _plot_adversary_weights(xs, weight_series, os.path.join(PLOTS_DIR, "adversary_weights.png"))
-    if random_curves["reward"] and trained_curves["reward"] and trained_curves["autonomy"] and trained_curves["adversary"]:
+    if trained_curves["reward"] and trained_curves["autonomy"] and trained_curves["adversary"]:
         _plot_before_after_summary(
-            before={"reward": random_curves["reward"][0], "ask_rate": random_curves["autonomy"][0], "adv_success": random_curves["adversary"][0]},
+            before={"reward": trained_curves["reward"][0], "ask_rate": trained_curves["autonomy"][0], "adv_success": trained_curves["adversary"][0]},
             after={"reward": trained_curves["reward"][-1], "ask_rate": trained_curves["autonomy"][-1], "adv_success": trained_curves["adversary"][-1]},
             out_path=os.path.join(PLOTS_DIR, "before_after_summary.png"),
         )
@@ -955,6 +1264,23 @@ def run_grpo_training(
             "checkpoint_summaries": checkpoint_summaries,
             "eval_steps": xs,
             "heldout_summary_3seed": heldout,
+        },
+    )
+    _dump_metrics_json(
+        os.path.join(METRICS_DIR, "training_series.json"),
+        {
+            "source": "grpo",
+            "model_name": model_name,
+            "eval_steps": xs,
+            "reward": {
+                "trained": trained_curves["reward"],
+                "random": random_curves["reward"],
+                "ask_always": ask_curves["reward"],
+            },
+            "autonomy": {"trained": trained_curves["autonomy"], "random": random_curves["autonomy"]},
+            "adversary_success": {"trained": trained_curves["adversary"]},
+            "rubric_weighted": {k: list(v) for k, v in rubric_weighted_series.items()},
+            "adversary_weights": {str(k): list(v) for k, v in weight_series.items()},
         },
     )
 
