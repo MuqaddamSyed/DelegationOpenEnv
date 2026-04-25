@@ -314,8 +314,8 @@ def _empty_plot(message: str):
         font=dict(size=14, color=DG_PLOT_COLORS["muted"]),
     )
     fig.update_layout(
-        plot_bgcolor="white",
-        paper_bgcolor="white",
+        plot_bgcolor=_CHART_BG,
+        paper_bgcolor=_CHART_BG,
         height=420,
         xaxis=dict(visible=False),
         yaxis=dict(visible=False),
@@ -324,21 +324,42 @@ def _empty_plot(message: str):
     return fig
 
 
+_CHART_BG   = "#0E0E18"
+_CHART_GRID = "#1E1E2E"
+_CHART_TICK = "#64748B"
+_CHART_FONT = "#94A3B8"
+_CHART_TEXT = "#F1F5F9"
+
+
 def _base_layout(title: str, subtitle: str = "", height: int = 420) -> Dict[str, Any]:
-    title_html = f"<b>{title}</b>"
+    title_html = f"<b style='color:{_CHART_TEXT}'>{title}</b>"
     if subtitle:
-        title_html += f"<br><span style='font-size:12px;color:{DG_PLOT_COLORS['muted']};font-weight:400'>{subtitle}</span>"
+        title_html += f"<br><span style='font-size:12px;color:{_CHART_TICK};font-weight:400'>{subtitle}</span>"
     return dict(
         title=dict(text=title_html, x=0.0, xanchor="left", y=0.96),
-        plot_bgcolor="white",
-        paper_bgcolor="white",
+        plot_bgcolor=_CHART_BG,
+        paper_bgcolor=_CHART_BG,
         height=height,
         margin=dict(l=60, r=30, t=70, b=60),
-        font=dict(family="Inter, ui-sans-serif, system-ui, sans-serif", size=12, color=DG_PLOT_COLORS["axis"]),
-        legend=dict(orientation="h", yanchor="bottom", y=-0.22, xanchor="left", x=0.0, bgcolor="rgba(0,0,0,0)"),
-        hoverlabel=dict(bgcolor="white", bordercolor=DG_PLOT_COLORS["muted"], font=dict(family="Inter, sans-serif", size=12)),
-        xaxis=dict(showgrid=True, gridcolor="#E5E7EB", zeroline=False, ticks="outside", tickcolor="#E5E7EB"),
-        yaxis=dict(showgrid=True, gridcolor="#E5E7EB", zeroline=False, ticks="outside", tickcolor="#E5E7EB"),
+        font=dict(family="Inter, ui-sans-serif, system-ui, sans-serif", size=12, color=_CHART_FONT),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=-0.25, xanchor="left", x=0.0,
+            bgcolor="rgba(0,0,0,0)", font=dict(color=_CHART_FONT),
+        ),
+        hoverlabel=dict(
+            bgcolor="#1A1A26", bordercolor="#6366F1",
+            font=dict(family="Inter, sans-serif", size=12, color=_CHART_TEXT),
+        ),
+        xaxis=dict(
+            showgrid=True, gridcolor=_CHART_GRID, zeroline=False,
+            ticks="outside", tickcolor=_CHART_GRID,
+            tickfont=dict(color=_CHART_TICK), title_font=dict(color=_CHART_FONT),
+        ),
+        yaxis=dict(
+            showgrid=True, gridcolor=_CHART_GRID, zeroline=False,
+            ticks="outside", tickcolor=_CHART_GRID,
+            tickfont=dict(color=_CHART_TICK), title_font=dict(color=_CHART_FONT),
+        ),
     )
 
 
@@ -647,17 +668,21 @@ def build_before_after_figure():
             hovertemplate=f"<b>{label} (after)</b><br>{fmt.format(a)}<extra></extra>",
             showlegend=False,
         ), row=1, col=col)
-        fig.update_xaxes(showgrid=True, gridcolor="#E5E7EB", zeroline=False, row=1, col=col,
-                         range=[0.0, max(abs(a), abs(b), 0.05) * 1.6 + 0.05])
-        fig.update_yaxes(showgrid=False, zeroline=False, row=1, col=col)
+        fig.update_xaxes(showgrid=True, gridcolor=_CHART_GRID, zeroline=False, row=1, col=col,
+                         range=[0.0, max(abs(a), abs(b), 0.05) * 1.6 + 0.05],
+                         tickfont=dict(color=_CHART_TICK))
+        fig.update_yaxes(showgrid=False, zeroline=False, row=1, col=col,
+                         tickfont=dict(color=_CHART_TICK))
 
     fig.update_layout(
-        title=dict(text="<b>Before vs After: judge-facing summary</b>", x=0.0, xanchor="left", y=0.96),
-        plot_bgcolor="white",
-        paper_bgcolor="white",
+        title=dict(text=f"<b style='color:{_CHART_TEXT}'>Before vs After: judge-facing summary</b>", x=0.0, xanchor="left", y=0.96),
+        plot_bgcolor=_CHART_BG,
+        paper_bgcolor=_CHART_BG,
         height=380,
         margin=dict(l=60, r=30, t=80, b=40),
-        font=dict(family="Inter, ui-sans-serif, system-ui, sans-serif", size=12, color=DG_PLOT_COLORS["axis"]),
+        font=dict(family="Inter, ui-sans-serif, system-ui, sans-serif", size=12, color=_CHART_FONT),
+        hoverlabel=dict(bgcolor="#1A1A26", bordercolor="#6366F1",
+                        font=dict(family="Inter, sans-serif", size=12, color=_CHART_TEXT)),
     )
     return fig
 
@@ -766,98 +791,259 @@ def _training_series_summary_html() -> str:
 
 
 _THEME_CSS = """
-:root {
-    --dg-bg: rgba(15,23,42,0.02);
-    --dg-border: rgba(99,102,241,0.22);
-    --dg-shadow: 0 1px 3px rgba(15,23,42,0.06), 0 2px 8px rgba(15,23,42,0.04);
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+/* ── Force dark everywhere ───────────────────────────────── */
+html, body {
+    background: #0A0A0F !important;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+    color: #F1F5F9 !important;
 }
-.dark :root, .dark {
-    --dg-bg: rgba(99,102,241,0.06);
+.gradio-container {
+    background: transparent !important;
+    max-width: 1280px !important;
+    margin: 0 auto !important;
 }
+footer, .footer, footer.svelte-1ax1toq { display: none !important; }
+
+/* ── Tab navigation ──────────────────────────────────────── */
+.tabs > .tab-nav {
+    background: #12121A !important;
+    border-bottom: 2px solid #1E1E2E !important;
+    padding: 0 8px !important;
+}
+.tabs > .tab-nav > button {
+    color: #64748B !important;
+    background: transparent !important;
+    border: none !important;
+    border-bottom: 2px solid transparent !important;
+    padding: 12px 20px !important;
+    font-weight: 500 !important;
+    font-size: 14px !important;
+    margin-bottom: -2px !important;
+    transition: color 0.15s ease !important;
+}
+.tabs > .tab-nav > button:hover { color: #CBD5E1 !important; }
+.tabs > .tab-nav > button.selected {
+    color: #6366F1 !important;
+    border-bottom-color: #6366F1 !important;
+}
+
+/* ── Panels, blocks, wrappers ────────────────────────────── */
+.block, .panel, .form, .contain, .gap, .padded,
+.block.padded, .form.padded { background: transparent !important; }
+
+/* ── Textareas ────────────────────────────────────────────── */
+label.block textarea, .block textarea, textarea {
+    background: #0E0E18 !important;
+    border: 1px solid #1E1E2E !important;
+    color: #CBD5E1 !important;
+    font-family: 'Courier New', ui-monospace, monospace !important;
+    font-size: 12.5px !important;
+    line-height: 1.5 !important;
+    border-radius: 8px !important;
+}
+label.block textarea:focus, textarea:focus {
+    border-color: #6366F1 !important;
+    outline: none !important;
+}
+
+/* ── Number / text inputs ──────────────────────────────────── */
+label.block input[type="number"],
+label.block input[type="text"],
+input[type="number"], input[type="text"] {
+    background: #0E0E18 !important;
+    border: 1px solid #1E1E2E !important;
+    color: #F1F5F9 !important;
+    border-radius: 8px !important;
+}
+
+/* ── Labels ───────────────────────────────────────────────── */
+label > span, .block > label > span, .svelte-1f354aw {
+    color: #94A3B8 !important;
+    font-size: 0.74rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.07em !important;
+    text-transform: uppercase !important;
+}
+
+/* ── Sliders & checkboxes ─────────────────────────────────── */
+input[type="range"] { accent-color: #6366F1 !important; }
+input[type="checkbox"] { accent-color: #6366F1 !important; }
+input[type="range"]::-webkit-slider-thumb { background: #6366F1 !important; }
+
+/* ── Dropdowns ────────────────────────────────────────────── */
+select, .wrap-inner { background: #0E0E18 !important; border-color: #1E1E2E !important; color: #F1F5F9 !important; }
+
+/* ── Buttons ─────────────────────────────────────────────── */
+button.primary, .primary {
+    background: #6366F1 !important;
+    border: none !important;
+    color: #fff !important;
+    font-weight: 600 !important;
+    border-radius: 8px !important;
+    letter-spacing: 0.01em !important;
+}
+button.primary:hover { background: #4F46E5 !important; }
+button.secondary, .secondary {
+    background: #12121A !important;
+    border: 1px solid #1E1E2E !important;
+    color: #94A3B8 !important;
+    border-radius: 8px !important;
+}
+button.secondary:hover { border-color: #6366F1 !important; color: #F1F5F9 !important; }
+
+/* ── Accordion ────────────────────────────────────────────── */
+.label-wrap { background: #12121A !important; border: 1px solid #1E1E2E !important; border-radius: 8px !important; }
+.label-wrap span { color: #94A3B8 !important; }
+
+/* ── Markdown ─────────────────────────────────────────────── */
+.prose { color: #94A3B8 !important; }
+.prose h1, .prose h2, .prose h3 { color: #F1F5F9 !important; font-weight: 700 !important; }
+.prose p, .prose li { color: #94A3B8 !important; }
+.prose code, .prose pre { background: #12121A !important; color: #A5B4FC !important; border: 1px solid #1E1E2E !important; border-radius: 6px !important; }
+.prose table { border-color: #1E1E2E !important; }
+.prose th { background: #12121A !important; color: #94A3B8 !important; }
+.prose td { border-color: #1E1E2E !important; color: #CBD5E1 !important; }
+.prose a { color: #818CF8 !important; }
+.prose strong { color: #F1F5F9 !important; }
+
+/* ── gr.Image caption ─────────────────────────────────────── */
+.label-wrap span.svelte-s1r2yt { color: #64748B !important; font-size: 11px !important; }
+
+/* ── gr.Slider ────────────────────────────────────────────── */
+.wrap { background: transparent !important; }
+.block.svelte-1b6s6im { background: transparent !important; }
+
+/* ── Section headers (custom) ─────────────────────────────── */
+.dg-section {
+    padding: 6px 0 14px 0;
+    border-bottom: 1px solid #1E1E2E;
+    margin-bottom: 16px;
+}
+.dg-section-label {
+    font-size: 0.70rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #6366F1;
+    margin-bottom: 4px;
+}
+.dg-section-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #F1F5F9;
+    letter-spacing: -0.01em;
+}
+
+/* ── Hero ─────────────────────────────────────────────────── */
 .dg-hero {
-    border: 1px solid var(--dg-border);
-    background: linear-gradient(135deg, rgba(79,70,229,0.14), rgba(236,72,153,0.10));
+    background: #0E0E18;
+    border: 1px solid #1E1E2E;
     border-radius: 16px;
-    padding: 22px 24px;
-    margin-bottom: 14px;
-    box-shadow: var(--dg-shadow);
+    padding: 36px 40px 30px 40px;
+    margin-bottom: 4px;
+    position: relative;
+    overflow: hidden;
+}
+.dg-hero::before {
+    content: '';
+    position: absolute;
+    top: -60px; right: -60px;
+    width: 300px; height: 300px;
+    background: radial-gradient(circle, rgba(99,102,241,0.12) 0%, transparent 70%);
+    pointer-events: none;
 }
 .dg-hero h1 {
-    margin: 0 0 6px 0;
-    font-size: 28px;
-    letter-spacing: -0.02em;
+    margin: 6px 0 12px 0;
+    font-size: 2.4rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: #F1F5F9;
+    line-height: 1.15;
 }
 .dg-hero p {
-    margin: 0;
-    font-size: 0.98rem;
-    opacity: 0.92;
+    margin: 0 0 16px 0;
+    font-size: 1rem;
+    color: #94A3B8;
+    line-height: 1.65;
+    max-width: 660px;
 }
-.dg-badges {
-    margin-top: 10px;
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-}
+.dg-hero strong { color: #F1F5F9; }
+.dg-badges { display: flex; gap: 8px; flex-wrap: wrap; }
 .dg-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 4px 10px;
-    font-size: 12px;
-    font-weight: 600;
-    border-radius: 999px;
-    background: rgba(99,102,241,0.16);
-    color: #4338CA;
-    border: 1px solid rgba(99,102,241,0.25);
+    display: inline-flex; align-items: center;
+    padding: 4px 11px; font-size: 11.5px; font-weight: 600;
+    border-radius: 999px; letter-spacing: 0.02em;
+    background: rgba(99,102,241,0.15);
+    color: #A5B4FC;
+    border: 1px solid rgba(99,102,241,0.28);
 }
-.dark .dg-badge { color: #C7D2FE; background: rgba(99,102,241,0.18); }
-.dg-badge.green { background: rgba(16,185,129,0.16); color:#047857; border-color: rgba(16,185,129,0.25);}
-.dark .dg-badge.green { color:#A7F3D0; }
-.dg-badge.pink  { background: rgba(236,72,153,0.16); color:#BE185D; border-color: rgba(236,72,153,0.25);}
-.dark .dg-badge.pink  { color:#FBCFE8; }
-.dg-badge.amber { background: rgba(245,158,11,0.16); color:#B45309; border-color: rgba(245,158,11,0.25);}
-.dark .dg-badge.amber { color:#FDE68A; }
+.dg-badge.green { background: rgba(16,185,129,0.12); color: #6EE7B7; border-color: rgba(16,185,129,0.25); }
+.dg-badge.pink  { background: rgba(236,72,153,0.12);  color: #F9A8D4; border-color: rgba(236,72,153,0.25); }
+.dg-badge.amber { background: rgba(245,158,11,0.12);  color: #FDE68A; border-color: rgba(245,158,11,0.25); }
 
+/* ── KPI strip ────────────────────────────────────────────── */
 .dg-kpi-row {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
-    margin-top: 8px;
+    margin: 12px 0;
 }
 @media (max-width: 900px) { .dg-kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .dg-card {
-    border: 1px solid rgba(148,163,184,0.25);
-    background: var(--dg-bg);
+    background: #0E0E18;
+    border: 1px solid #1E1E2E;
     border-radius: 12px;
-    padding: 12px 14px;
-    box-shadow: var(--dg-shadow);
+    padding: 14px 16px;
+    transition: border-color 0.15s;
 }
-.dg-card-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.72; }
-.dg-card-value { font-size: 22px; font-weight: 700; margin-top: 2px; }
-.dg-card-help  { font-size: 11px; opacity: 0.65; margin-top: 4px; }
+.dg-card:hover { border-color: rgba(99,102,241,0.4); }
+.dg-card-label { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #64748B; }
+.dg-card-value { font-size: 24px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.dg-card-help  { font-size: 11px; color: #64748B; margin-top: 4px; }
 
+/* ── Callout ──────────────────────────────────────────────── */
 .dg-callout {
     border-left: 3px solid #6366F1;
-    background: rgba(99,102,241,0.06);
-    padding: 10px 14px;
-    border-radius: 8px;
-    font-size: 0.95rem;
+    background: rgba(99,102,241,0.07);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    font-size: 0.93rem;
+    color: #94A3B8;
+    line-height: 1.6;
 }
+.dg-callout code { background: #1A1A26; color: #A5B4FC; padding: 1px 5px; border-radius: 4px; font-size: 0.88em; }
+
+/* ── Link grid ────────────────────────────────────────────── */
 .dg-link-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 @media (max-width: 700px) { .dg-link-grid { grid-template-columns: 1fr; } }
 .dg-link {
-    display: block;
-    padding: 12px 14px;
-    border: 1px solid rgba(148,163,184,0.25);
-    border-radius: 10px;
-    text-decoration: none !important;
-    color: inherit;
-    background: var(--dg-bg);
-    transition: transform 0.05s ease-in, border-color 0.1s ease-in;
+    display: block; padding: 14px 16px;
+    border: 1px solid #1E1E2E; border-radius: 10px;
+    text-decoration: none !important; color: inherit;
+    background: #0E0E18;
+    transition: border-color 0.12s, transform 0.08s;
 }
-.dg-link:hover { border-color: rgba(99,102,241,0.55); transform: translateY(-1px); }
-.dg-link b { display:block; font-size: 14px; }
-.dg-link span { font-size: 12px; opacity: 0.75; }
+.dg-link:hover { border-color: rgba(99,102,241,0.5); transform: translateY(-1px); }
+.dg-link b { display: block; font-size: 14px; color: #F1F5F9; margin-bottom: 3px; }
+.dg-link span { font-size: 12px; color: #64748B; }
 
+/* ── Chart section headers ────────────────────────────────── */
+.dg-chart-section {
+    padding: 20px 0 4px 0;
+}
+.dg-chart-section-label {
+    font-size: 0.68rem; font-weight: 700;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: #6366F1; margin-bottom: 2px;
+}
+.dg-chart-section-title {
+    font-size: 0.98rem; font-weight: 700;
+    color: #F1F5F9; letter-spacing: -0.01em;
+}
+
+/* ── Log / terminal ──────────────────────────────────────── */
 .dg-log textarea {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
     font-size: 12.5px !important;
@@ -867,13 +1053,38 @@ _THEME_CSS = """
 
 
 def _build_theme(gr_module):
-    return gr_module.themes.Soft(
-        primary_hue="indigo",
-        secondary_hue="pink",
-        neutral_hue="slate",
-        radius_size="md",
+    return gr_module.themes.Base(
+        primary_hue=gr_module.themes.colors.indigo,
+        secondary_hue=gr_module.themes.colors.pink,
+        neutral_hue=gr_module.themes.colors.slate,
+        radius_size=gr_module.themes.sizes.md,
         font=[gr_module.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"],
+    ).set(
+        body_background_fill="#0A0A0F",
+        body_text_color="#F1F5F9",
+        background_fill_primary="#0E0E18",
+        background_fill_secondary="#12121A",
+        border_color_accent="#1E1E2E",
+        border_color_primary="#1E1E2E",
+        color_accent_soft="#6366F1",
+        input_background_fill="#0E0E18",
+        input_border_color="#1E1E2E",
+        input_label_padding="4px 0 6px 0",
+        panel_background_fill="#0A0A0F",
+        panel_border_color="#1E1E2E",
+        block_background_fill="transparent",
+        block_border_color="#1E1E2E",
+        block_label_text_color="#94A3B8",
     )
+
+
+_FORCE_DARK_JS = """
+function() {
+    document.documentElement.classList.add('dark');
+    document.documentElement.style.colorScheme = 'dark';
+    document.body.style.background = '#0A0A0F';
+}
+"""
 
 
 def _supports_kwarg(fn, name: str) -> bool:
@@ -983,9 +1194,14 @@ def build_demo():
     blocks_kwargs: Dict[str, Any] = {"title": "Delegation Gauntlet"}
     # Gradio <6 accepts theme/css on Blocks; Gradio >=6 wants them on launch().
     if _supports_kwarg(gr.Blocks.__init__, "theme"):
-        blocks_kwargs["theme"] = _build_theme(gr)
+        try:
+            blocks_kwargs["theme"] = _build_theme(gr)
+        except Exception:
+            pass
     if _supports_kwarg(gr.Blocks.__init__, "css"):
         blocks_kwargs["css"] = _THEME_CSS
+    if _supports_kwarg(gr.Blocks.__init__, "js"):
+        blocks_kwargs["js"] = _FORCE_DARK_JS
 
     with gr.Blocks(**blocks_kwargs) as demo:
         gr.HTML(_hero_html())
@@ -995,9 +1211,11 @@ def build_demo():
             # Live Demo
             # ============================================================
             with gr.Tab("Live Demo"):
-                gr.Markdown(
-                    "Configure a run, then stream a full episode with adversarial interventions and rubric progress."
-                )
+                gr.HTML("""
+<div class="dg-chart-section">
+  <div class="dg-chart-section-label">Interactive sandbox</div>
+  <div class="dg-chart-section-title">Run a live episode and watch the agent navigate adversarial pressure</div>
+</div>""")
                 with gr.Row():
                     with gr.Column(scale=1, min_width=320):
                         scenario = gr.Dropdown(
@@ -1015,13 +1233,13 @@ def build_demo():
                         max_turns = gr.Slider(10, 200, value=60, step=1, label="Max turns")
                         seed = gr.Number(value=0, precision=0, label="Seed")
                         with gr.Row():
-                            run_btn = gr.Button("▶ Run Episode", variant="primary")
+                            run_btn = gr.Button("Run Episode", variant="primary")
                             clear_btn = gr.Button("Clear")
-                        gr.Markdown("**Quick presets**")
+                        gr.HTML('<div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#64748B;margin:12px 0 6px 0;">Quick presets</div>')
                         with gr.Row():
-                            preset_quick = gr.Button("Quick Demo")
-                            preset_judge = gr.Button("Judge Run")
-                            preset_stress = gr.Button("Stress Test")
+                            preset_quick = gr.Button("Quick Demo", size="sm")
+                            preset_judge = gr.Button("Judge Run", size="sm")
+                            preset_stress = gr.Button("Stress Test", size="sm")
                         with gr.Accordion("What Judge Mode does", open=False):
                             gr.Markdown(
                                 """
@@ -1033,19 +1251,19 @@ def build_demo():
                             )
 
                     with gr.Column(scale=2):
-                        gr.Markdown("#### Live KPIs")
+                        gr.HTML('<div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#64748B;margin:0 0 8px 0;">Live KPIs</div>')
                         kpi_html = gr.HTML(
                             _kpi_html(0.0, 0.0, 0.0, 0),
                         )
                         log = gr.Textbox(
-                            label="Live Log",
+                            label="Episode log",
                             lines=20,
                             interactive=False,
                             autoscroll=True,
                             elem_classes=["dg-log"],
                         )
 
-                gr.Markdown("### Rubric progress (0 to 1)")
+                gr.HTML('<div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#64748B;margin:16px 0 8px 0;">Rubric progress (0 → 1)</div>')
                 with gr.Row():
                     with gr.Column():
                         task_completion = gr.Slider(0, 1, value=0, step=0.01, label="Task completion", interactive=False)
@@ -1083,42 +1301,58 @@ def build_demo():
                 )
 
             # ============================================================
-            # Training Results (interactive)
+            # Training Results
             # ============================================================
             with gr.Tab("Training Results"):
-                gr.Markdown(
-                    """
-Fully **interactive** Plotly charts — hover for exact values, drag to **zoom**, scroll to pan,
-double-click to reset. Click the **camera icon** (top-right of each chart) to download a PNG.
-Generated by `training/train_grpo.py`; reproduce via the **Colab notebook** in the About tab.
-"""
-                )
+                gr.HTML("""
+<div class="dg-chart-section">
+  <div class="dg-chart-section-label">GRPO Training — Qwen2.5-1.5B-Instruct</div>
+  <div class="dg-chart-section-title">Interactive training curves — hover for values, drag to zoom, scroll to pan</div>
+</div>""")
                 training_summary_html = gr.HTML(_training_series_summary_html())
-                gr.HTML(
-                    '<div class="dg-callout">'
-                    'Hero plot: <b>Autonomy calibration</b>. The trained agent learns to keep '
-                    '<code>boss_ask_rate</code> inside the [0.05, 0.20] Goldilocks band. '
-                    'All charts are interactive — hover, zoom, and export.'
-                    '</div>'
-                )
 
-                # pre-build all chart HTML strings (CDN script included once in reward chart)
+                gr.HTML("""
+<div style="padding:10px 14px;background:rgba(99,102,241,0.08);border-left:3px solid #6366F1;border-radius:0 8px 8px 0;margin:4px 0 12px 0;font-size:0.9rem;color:#94A3B8;line-height:1.6;">
+  <strong style="color:#A5B4FC;">Hero plot: Autonomy Calibration.</strong>
+  The trained agent enters and holds the Goldilocks band [0.05, 0.20] for boss ask rate —
+  starting at 0% (fully autonomous) and stabilising at ~11%. All charts support hover, zoom, and PNG export.
+</div>""")
+
+                # ── Reward + Autonomy (hero pair) ──────────────────────────
+                gr.HTML("""
+<div class="dg-chart-section">
+  <div class="dg-chart-section-label">Training progress</div>
+  <div class="dg-chart-section-title">Episode Reward &amp; Autonomy Calibration</div>
+</div>""")
                 _init_charts = _all_chart_html()
-
                 with gr.Row():
                     chart_reward   = gr.HTML(_init_charts[0], label="Reward curve")
                     chart_autonomy = gr.HTML(_init_charts[1], label="Autonomy curve (hero)")
+
+                # ── Adversary + Rubric ─────────────────────────────────────
+                gr.HTML("""
+<div class="dg-chart-section">
+  <div class="dg-chart-section-label">Adversarial robustness &amp; rubric breakdown</div>
+  <div class="dg-chart-section-title">Adversary Co-evolution &amp; Per-rubric Scores</div>
+</div>""")
                 with gr.Row():
                     chart_adversary = gr.HTML(_init_charts[2], label="Adversary success")
                     chart_rubric    = gr.HTML(_init_charts[3], label="Rubric breakdown")
+
+                # ── Bandit weights + Before/After ──────────────────────────
+                gr.HTML("""
+<div class="dg-chart-section">
+  <div class="dg-chart-section-label">Bandit adaptation &amp; judge summary</div>
+  <div class="dg-chart-section-title">Attack Weight Evolution &amp; Before / After</div>
+</div>""")
                 with gr.Row():
                     chart_weights  = gr.HTML(_init_charts[4], label="Adversary bandit weights")
                     chart_summary  = gr.HTML(_init_charts[5], label="Before vs After")
 
                 with gr.Row():
-                    refresh_plots_btn = gr.Button("🔄 Refresh from latest training run", size="sm", variant="secondary")
+                    refresh_plots_btn = gr.Button("Refresh from latest training run", size="sm", variant="secondary")
 
-                with gr.Accordion("Static PNG snapshots (for README / GitHub)", open=False):
+                with gr.Accordion("Static PNG snapshots (README / GitHub)", open=False):
                     with gr.Row():
                         gr.Image(_plot_path("autonomy_curve.png"), label="autonomy_curve.png", show_label=True, height=260)
                         gr.Image(_plot_path("reward_curve.png"), label="reward_curve.png", show_label=True, height=260)
@@ -1160,11 +1394,12 @@ Generated by `training/train_grpo.py`; reproduce via the **Colab notebook** in t
                 gr.Markdown(
                     """
 ### Why this matters
-Tool-using agents fail in production in predictable ways: poor autonomy calibration, susceptibility to authority spoofing, irreversible actions without approval, budget violations.
-Frontier labs run internal "gauntlets" before granting tool access. **There is no public, OpenEnv-compliant equivalent. We built one.**
+Before Anthropic ships a tool-using Claude, it runs an internal gauntlet. Before OpenAI deploys an agent with real budget authority, it runs structured evals. None of that is public. **Delegation Gauntlet is the first open-source, OpenEnv-compliant version of that class of evaluation.**
+
+The failure modes it tests: autonomy miscalibration, authority spoofing, irreversible actions without approval, budget violations under adversarial noise. These are the ASL-3 questions — they come before "can this model do the task?" because the task is only useful if the model can be trusted while doing it.
 
 ### Hackathon non-negotiables
-- **OpenEnv (latest)** — yes; manifest, HTTP API, and `DelegationOpenEnv` wrapper.
+- **OpenEnv (latest)** — manifest, HTTP API, and `DelegationOpenEnv` wrapper.
 - **TRL training script** — `training/train_grpo.py` uses `GRPOTrainer`; Colab linked below.
 - **Real training evidence** — reward / autonomy / adversary curves on the Training Results tab.
 - **Hugging Face Space** — this app.
