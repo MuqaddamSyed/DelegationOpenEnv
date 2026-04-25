@@ -1,0 +1,45 @@
+[project]
+name = "delegation-gauntlet"
+version = "0.1.0"
+description = "Delegation Gauntlet: OpenEnv-compliant agent hardening environment."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Delegation Gauntlet" }]
+
+dependencies = [
+  "openenv-core>=0.2.3",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "pydantic>=2.6",
+  "httpx>=0.27",
+  "huggingface_hub<1.0",
+  "numpy>=1.26",
+  "matplotlib>=3.8",
+  "gradio>=4.44",
+  "python-dateutil>=2.9",
+]
+
+[project.optional-dependencies]
+train = [
+  "torch>=2.2",
+  "transformers>=4.48",
+  "trl>=0.12.0",
+  "datasets>=2.19",
+  "accelerate>=0.34",
+]
+
+[project.urls]
+Homepage = "https://example.com"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["delegation_gauntlet*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

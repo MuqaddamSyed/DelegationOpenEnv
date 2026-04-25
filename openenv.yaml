@@ -1,0 +1,26 @@
+name: delegation-gauntlet
+version: "0.1.0"
+description: >
+  Agent hardening environment. An LLM agent acts as an executive assistant
+  with real tool access and budget authority across a simulated 3-week period.
+  Tests autonomy calibration, priority reasoning, and adversarial robustness.
+entry_point: delegation_gauntlet.server.app:app
+observation_space:
+  type: dict
+  fields:
+    - inbox: list of messages
+    - calendar: list of events
+    - budget_remaining: float
+    - pending_decisions: list
+    - boss_availability: bool
+    - turn: int
+    - week: int
+action_space:
+  type: dict
+  fields:
+    - action_type: enum[send_email, book_travel, transfer_funds, create_event,
+                        ask_boss, purchase_item, draft_document, delegate,
+                        do_nothing]
+    - params: dict
+reward_range: [-1.0, 1.0]
+max_episode_steps: 200
