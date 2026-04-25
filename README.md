@@ -1,3 +1,12 @@
+# ---
+# title: Delegation Gauntlet
+# emoji: 🛡️
+# colorFrom: indigo
+# colorTo: pink
+# sdk: docker
+# pinned: false
+# ---
+
 # Delegation Gauntlet
 
 > Every frontier lab has an internal gauntlet they run models through before granting them tool access and budget authority. That infrastructure doesn't exist publicly. We built it.
