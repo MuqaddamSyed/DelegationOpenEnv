@@ -206,5 +206,8 @@ demo = build_demo()
 
 
 if __name__ == "__main__":
-    demo.launch()
+    # Hugging Face Spaces provides PORT. In Docker/Spaces we must bind 0.0.0.0.
+    port = int(os.environ.get("PORT", os.environ.get("GRADIO_SERVER_PORT", "7860")))
+    host = os.environ.get("GRADIO_SERVER_NAME", "0.0.0.0")
+    demo.launch(server_name=host, server_port=port)
 

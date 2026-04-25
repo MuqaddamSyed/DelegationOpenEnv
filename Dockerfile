@@ -28,5 +28,8 @@ RUN pip install --upgrade pip && pip install -e .
 EXPOSE 7860
 
 # Hugging Face Spaces expects the app on port 7860
-CMD ["python", "spaces/app.py", "--server.port", "7860", "--server.name", "0.0.0.0"]
+ENV GRADIO_SERVER_NAME=0.0.0.0 \
+    GRADIO_SERVER_PORT=7860
+
+CMD ["python", "spaces/app.py"]
 
