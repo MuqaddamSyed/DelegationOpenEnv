@@ -550,9 +550,84 @@ def run_grpo_training(
     )
 
 
+class QwenPolicy:
+    """Simple inference policy wrapper for evaluation-only runs."""
+
+    def __init__(self, model: Any, tokenizer: Any):
+        self.model = model
+        self.tokenizer = tokenizer
+
+    def __call__(self, env: DelegationWorld, rng: random.Random) -> Dict[str, Any]:
+        import torch
+
+        st = env.state
+        assert st is not None
+        obs = env.render_observation(st)
+        prompt = (
+            obs
+            + "\nReturn ONLY valid JSON with keys action_type and params.\n"
+            + "No markdown. No explanation."
+        )
+        inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048).to(self.model.device)
+        with torch.no_grad():
+            out = self.model.generate(
+                **inputs,
+                max_new_tokens=96,
+                do_sample=True,
+                temperature=0.5,
+                top_p=0.9,
+                pad_token_id=self.tokenizer.eos_token_id,
+            )
+        generated = self.tokenizer.decode(out[0][inputs["input_ids"].shape[-1] :], skip_special_tokens=True)
+        return _extract_action_json(generated)
+
+
+def run_qwen_eval(model_name: str, episodes: int = 10, episode_turns: int = 60, seed: int = 0) -> None:
+    _ensure_plots_dir()
+    rng = random.Random(seed)
+
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True)
+    model.to(device)
+    model.eval()
+
+    qwen_policy = QwenPolicy(model, tokenizer)
+    simple_policy = SimpleTrainerPolicy()
+    env = DelegationWorld()
+
+    qwen_rewards: List[float] = []
+    simple_rewards: List[float] = []
+    xs: List[int] = []
+    for i in range(episodes):
+        xs.append(i + 1)
+        q_ep = _run_episode(env, qwen_policy, max_turns=episode_turns, rng=rng)
+        s_ep = _run_episode(env, simple_policy, max_turns=episode_turns, rng=rng)
+        simple_policy.update_from_episode(s_ep)
+        qwen_rewards.append(q_ep.episode_reward)
+        simple_rewards.append(s_ep.episode_reward)
+        print(f"episode={i+1} qwen={q_ep.episode_reward:.3f} simple={s_ep.episode_reward:.3f}")
+
+    _plot_curves(
+        xs,
+        {"qwen_untrained": qwen_rewards, "simple_policy": simple_rewards},
+        title="Qwen evaluation vs simple baseline",
+        ylabel="episode_reward",
+        out_path=os.path.join(PLOTS_DIR, "qwen_comparison.png"),
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--smoke-test", action="store_true", help="Run dependency-free smoke training and emit plots.")
+    parser.add_argument("--qwen-eval", action="store_true", help="Run model evaluation without training.")
+    parser.add_argument("--episodes", type=int, default=10, help="Episodes for --qwen-eval.")
+    parser.add_argument("--model", type=str, default=None, help="Compatibility alias for --model-name.")
     parser.add_argument("--model-name", type=str, default="Qwen/Qwen2.5-1.5B-Instruct")
     parser.add_argument("--steps", type=int, default=200)
     parser.add_argument("--eval-every", type=int, default=50)
@@ -563,6 +638,26 @@ def main() -> None:
 
     if args.smoke_test:
         run_smoke_test(steps=args.steps, eval_every=args.eval_every, episode_turns=args.episode_turns, seed=args.seed)
+        print(f"ok: wrote plots to {PLOTS_DIR}/")
+        return
+
+    selected_model = args.model if args.model else args.model_name
+
+    if args.qwen_eval:
+        try:
+            import torch  # noqa: F401
+            from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: F401
+        except Exception as e:
+            raise RuntimeError(
+                "Qwen eval requires torch/transformers. Install with:\n"
+                "  pip install -e '.[train]'"
+            ) from e
+        run_qwen_eval(
+            model_name=selected_model,
+            episodes=args.episodes,
+            episode_turns=args.episode_turns,
+            seed=args.seed,
+        )
         print(f"ok: wrote plots to {PLOTS_DIR}/")
         return
 
@@ -581,7 +676,7 @@ def main() -> None:
         ) from e
 
     run_grpo_training(
-        model_name=args.model_name,
+        model_name=selected_model,
         steps=args.steps,
         eval_every=args.eval_every,
         episode_turns=args.episode_turns,
