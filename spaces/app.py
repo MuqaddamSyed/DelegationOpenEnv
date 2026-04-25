@@ -1053,29 +1053,37 @@ button.secondary:hover { border-color: #6366F1 !important; color: #F1F5F9 !impor
 
 
 def _build_theme(gr_module):
-    return gr_module.themes.Base(
-        primary_hue=gr_module.themes.colors.indigo,
-        secondary_hue=gr_module.themes.colors.pink,
-        neutral_hue=gr_module.themes.colors.slate,
-        radius_size=gr_module.themes.sizes.md,
-        font=[gr_module.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"],
-    ).set(
-        body_background_fill="#0A0A0F",
-        body_text_color="#F1F5F9",
-        background_fill_primary="#0E0E18",
-        background_fill_secondary="#12121A",
-        border_color_accent="#1E1E2E",
-        border_color_primary="#1E1E2E",
-        color_accent_soft="#6366F1",
-        input_background_fill="#0E0E18",
-        input_border_color="#1E1E2E",
-        input_label_padding="4px 0 6px 0",
-        panel_background_fill="#0A0A0F",
-        panel_border_color="#1E1E2E",
-        block_background_fill="transparent",
-        block_border_color="#1E1E2E",
-        block_label_text_color="#94A3B8",
-    )
+    try:
+        return gr_module.themes.Base(
+            primary_hue=gr_module.themes.colors.indigo,
+            secondary_hue=gr_module.themes.colors.pink,
+            neutral_hue=gr_module.themes.colors.slate,
+            font=[gr_module.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"],
+        ).set(
+            body_background_fill="#0A0A0F",
+            body_text_color="#F1F5F9",
+            background_fill_primary="#0E0E18",
+            background_fill_secondary="#12121A",
+            border_color_accent="#1E1E2E",
+            border_color_primary="#1E1E2E",
+            input_background_fill="#0E0E18",
+            input_border_color="#1E1E2E",
+            panel_background_fill="#0A0A0F",
+            panel_border_color="#1E1E2E",
+            block_background_fill="transparent",
+            block_border_color="#1E1E2E",
+            block_label_text_color="#94A3B8",
+        )
+    except Exception:
+        try:
+            return gr_module.themes.Soft(
+                primary_hue="indigo",
+                secondary_hue="pink",
+                neutral_hue="slate",
+                font=[gr_module.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"],
+            )
+        except Exception:
+            return gr_module.themes.Base()
 
 
 _FORCE_DARK_JS = """
