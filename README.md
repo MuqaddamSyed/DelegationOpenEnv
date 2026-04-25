@@ -1,11 +1,12 @@
-# ---
-# title: Delegation Gauntlet
-# emoji: 🛡️
-# colorFrom: indigo
-# colorTo: pink
-# sdk: docker
-# pinned: false
-# ---
+---
+title: Delegation Gauntlet
+emoji: 🛡️
+colorFrom: indigo
+colorTo: pink
+sdk: docker
+app_file: spaces/app.py
+pinned: false
+---
 
 # Delegation Gauntlet
 
