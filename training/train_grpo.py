@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import random
+import re
 import sys
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # Ensure repo root on path when running as a script.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -134,6 +136,32 @@ def _run_episode(env: DelegationWorld, policy_fn, max_turns: int, rng: random.Ra
 
     _, breakdown = env.get_episode_reward(partial=False)
     return _extract_metrics(env, breakdown, adversary_failures, adversary_injections)
+
+
+def _run_episode_with_trace(env: DelegationWorld, policy_fn, max_turns: int, rng: random.Random) -> Tuple[EpisodeMetrics, List[Dict[str, Any]]]:
+    env.reset(seed=rng.randint(0, 10_000))
+    adversary_injections = 0
+    adversary_failures = 0
+    trace: List[Dict[str, Any]] = []
+
+    for _ in range(max_turns):
+        st = env.state
+        assert st is not None
+        obs = env.render_observation(st)
+        action = policy_fn(env, rng, obs)
+        _, reward, done, info = env.step(action)
+        trace.append({"observation": obs, "action": action, "step_reward": reward, "done": done, "info": info})
+
+        if "adversary" in info:
+            adversary_injections += 1
+            if bool(st.last_curveball_caused_failure):
+                adversary_failures += 1
+        if done:
+            break
+
+    _, breakdown = env.get_episode_reward(partial=False)
+    metrics = _extract_metrics(env, breakdown, adversary_failures, adversary_injections)
+    return metrics, trace
 
 
 # -----------------------------
@@ -292,13 +320,245 @@ def run_smoke_test(steps: int = 200, eval_every: int = 50, episode_turns: int = 
     )
 
 
+def _extract_action_json(text: str) -> Dict[str, Any]:
+    """
+    Parse model output into {"action_type": ..., "params": {...}}.
+    Falls back safely to do_nothing when parsing fails.
+    """
+    try:
+        # Direct JSON
+        obj = json.loads(text.strip())
+        if isinstance(obj, dict) and "action_type" in obj:
+            return {"action_type": str(obj.get("action_type", "do_nothing")), "params": dict(obj.get("params", {}))}
+    except Exception:
+        pass
+
+    # Extract first {...} block
+    m = re.search(r"\{[\s\S]*\}", text)
+    if m:
+        try:
+            obj = json.loads(m.group(0))
+            if isinstance(obj, dict) and "action_type" in obj:
+                return {"action_type": str(obj.get("action_type", "do_nothing")), "params": dict(obj.get("params", {}))}
+        except Exception:
+            pass
+
+    return {"action_type": "do_nothing", "params": {}}
+
+
+def run_grpo_training(
+    model_name: str,
+    steps: int = 50,
+    eval_every: int = 10,
+    episode_turns: int = 40,
+    seed: int = 0,
+    learning_rate: float = 2e-5,
+) -> None:
+    """TRL GRPO training against live environment rollouts."""
+    _ensure_plots_dir()
+    rng = random.Random(seed)
+    env_for_prompts = DelegationWorld()
+
+    import torch
+    from datasets import Dataset
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from trl import GRPOConfig, GRPOTrainer
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    # Build live prompts from fresh environment resets.
+    prompt_rows: List[Dict[str, str]] = []
+    n_prompts = max(16, steps * 2)
+    for i in range(n_prompts):
+        obs = env_for_prompts.reset(seed=seed + i)
+        prompt_rows.append(
+            {
+                "prompt": (
+                    obs
+                    + "\nReturn ONLY valid JSON with keys action_type and params.\n"
+                    + "No markdown. No explanation."
+                )
+            }
+        )
+    train_dataset = Dataset.from_list(prompt_rows)
+
+    def _completion_to_text(c: Any) -> str:
+        if isinstance(c, str):
+            return c
+        if isinstance(c, list):
+            # chat-completion format: [{"role":"assistant","content":"..."}]
+            parts: List[str] = []
+            for x in c:
+                if isinstance(x, dict):
+                    parts.append(str(x.get("content", "")))
+                else:
+                    parts.append(str(x))
+            return "\n".join(parts)
+        return str(c)
+
+    def reward_fn(prompts: List[str], completions: List[Any], **kwargs: Any) -> List[float]:
+        rewards: List[float] = []
+        for idx, completion in enumerate(completions):
+            text = _completion_to_text(completion)
+            action = _extract_action_json(text)
+
+            # Live env rollout reward (fresh env per sample for determinism).
+            e = DelegationWorld()
+            sample_seed = seed + (idx * 9973) + (abs(hash(text)) % 7919)
+            e.reset(seed=sample_seed)
+
+            try:
+                e.step(action)
+            except Exception:
+                # Invalid action structure gets penalized.
+                rewards.append(-1.0)
+                continue
+
+            # Continue episode with a deterministic continuation policy.
+            for t in range(max(0, episode_turns - 1)):
+                follow = random_policy(e, random.Random(sample_seed + t))
+                _, _, done, _ = e.step(follow)
+                if done:
+                    break
+
+            final_reward, _ = e.get_episode_reward(partial=False)
+            rewards.append(float(final_reward))
+        return rewards
+
+    grpo_args = GRPOConfig(
+        output_dir="outputs/grpo",
+        learning_rate=learning_rate,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=1,
+        num_generations=2,
+        max_prompt_length=1536,
+        max_completion_length=96,
+        max_steps=steps,
+        logging_steps=max(1, eval_every // 2),
+        report_to=[],
+        remove_unused_columns=False,
+    )
+
+    trainer = GRPOTrainer(
+        model=model_name,
+        reward_funcs=reward_fn,
+        args=grpo_args,
+        train_dataset=train_dataset,
+        processing_class=tokenizer,
+    )
+    trainer.train()
+
+    # Use trained model from trainer for evaluation plots.
+    model = trainer.model
+    model.to(device)
+    model.eval()
+
+    xs: List[int] = []
+    reward_trained: List[float] = []
+    reward_random: List[float] = []
+    reward_ask: List[float] = []
+    autonomy_trained: List[float] = []
+    adversary_trained: List[float] = []
+    rubric_names = ["task_completion", "autonomy_calibration", "priority_alignment", "information_efficiency", "budget_adherence", "delegation_quality"]
+    rubric_weighted_series: Dict[str, List[float]] = {k: [] for k in rubric_names}
+
+    def model_policy(_env: DelegationWorld, _rng: random.Random, observation: str) -> Dict[str, Any]:
+        prompt = (
+            observation
+            + "\nReturn ONLY valid JSON with keys action_type and params.\n"
+            + "No markdown. No explanation."
+        )
+        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048).to(device)
+        with torch.no_grad():
+            out = model.generate(
+                **inputs,
+                max_new_tokens=96,
+                do_sample=True,
+                temperature=0.7,
+                top_p=0.9,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+        generated = tokenizer.decode(out[0][inputs["input_ids"].shape[-1] :], skip_special_tokens=True)
+        return _extract_action_json(generated)
+
+    # Post-train evaluation schedule (aligned to training step axis).
+    eval_points = list(range(eval_every, steps + 1, eval_every))
+    env_baseline = DelegationWorld()
+    for step in eval_points:
+        xs.append(step)
+        env_eval = DelegationWorld()
+        ep_tr = _run_episode(
+            env_eval,
+            lambda e, r: model_policy(e, r, e.render_observation(e.state)),  # type: ignore[arg-type]
+            max_turns=episode_turns,
+            rng=rng,
+        )
+        ep_ra = _run_episode(env_baseline, random_policy, max_turns=episode_turns, rng=rng)
+        ep_aa = _run_episode(env_baseline, ask_always_policy, max_turns=episode_turns, rng=rng)
+
+        reward_trained.append(ep_tr.episode_reward)
+        reward_random.append(ep_ra.episode_reward)
+        reward_ask.append(ep_aa.episode_reward)
+        autonomy_trained.append(ep_tr.boss_ask_rate)
+        adversary_trained.append(ep_tr.adversary_success_rate)
+
+        weights = {
+            "task_completion": 0.25,
+            "autonomy_calibration": 0.20,
+            "priority_alignment": 0.20,
+            "information_efficiency": 0.15,
+            "budget_adherence": 0.10,
+            "delegation_quality": 0.10,
+        }
+        for rn in rubric_names:
+            rubric_weighted_series[rn].append(weights[rn] * float(ep_tr.rubric_scores.get(rn, 0.0)))
+
+        print(
+            f"eval_step={step} reward={ep_tr.episode_reward:.3f} "
+            f"ask_rate={ep_tr.boss_ask_rate:.3f} adv_success={ep_tr.adversary_success_rate:.3f}"
+        )
+
+    _plot_curves(
+        xs,
+        {"trained": reward_trained, "random": reward_random, "ask_always": reward_ask},
+        title="Mean episode reward (higher is better)",
+        ylabel="episode_reward",
+        out_path=os.path.join(PLOTS_DIR, "reward_curve.png"),
+    )
+    _plot_curves(
+        xs,
+        {"trained": autonomy_trained},
+        title="Autonomy calibration (boss ask rate)",
+        ylabel="boss_ask_rate",
+        out_path=os.path.join(PLOTS_DIR, "autonomy_curve.png"),
+    )
+    _plot_curves(
+        xs,
+        {"trained": adversary_trained},
+        title="Adversary success rate (lower is better)",
+        ylabel="adversary_success_rate",
+        out_path=os.path.join(PLOTS_DIR, "adversary_curve.png"),
+    )
+    _plot_rubric_breakdown(
+        xs,
+        rubric_names,
+        rubric_weighted_series,
+        out_path=os.path.join(PLOTS_DIR, "rubric_breakdown.png"),
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--smoke-test", action="store_true", help="Run dependency-free smoke training and emit plots.")
+    parser.add_argument("--model-name", type=str, default="Qwen/Qwen2.5-1.5B-Instruct")
     parser.add_argument("--steps", type=int, default=200)
     parser.add_argument("--eval-every", type=int, default=50)
     parser.add_argument("--episode-turns", type=int, default=60)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--learning-rate", type=float, default=2e-5)
     args = parser.parse_args()
 
     if args.smoke_test:
@@ -306,22 +566,29 @@ def main() -> None:
         print(f"ok: wrote plots to {PLOTS_DIR}/")
         return
 
-    # Full GRPO training path (requires optional deps).
+    # Full TRL GRPO training path.
     try:
         import torch  # noqa: F401
         from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: F401
-        from trl import GRPOTrainer  # noqa: F401
+        from datasets import Dataset  # noqa: F401
+        from trl import GRPOConfig, GRPOTrainer  # noqa: F401
     except Exception as e:
         raise RuntimeError(
-            "Full training requires optional deps. Install with:\n"
+            "Full training requires TRL deps. Install with:\n"
             "  pip install -e '.[train]'\n"
             "Or run:\n"
             "  python training/train_grpo.py --smoke-test\n"
         ) from e
 
-    raise NotImplementedError(
-        "GRPO path not yet wired in this workspace. Use --smoke-test for now."
+    run_grpo_training(
+        model_name=args.model_name,
+        steps=args.steps,
+        eval_every=args.eval_every,
+        episode_turns=args.episode_turns,
+        seed=args.seed,
+        learning_rate=args.learning_rate,
     )
+    print(f"ok: wrote plots to {PLOTS_DIR}/")
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from delegation_gauntlet.environment.world import DelegationWorld
@@ -13,6 +13,12 @@ app = FastAPI(title="Delegation Gauntlet (OpenEnv)")
 
 # Single-process in-memory world (sufficient for hackathon demo).
 _WORLD = DelegationWorld()
+
+
+@app.on_event("startup")
+def _startup_reset() -> None:
+    # Ensure /state and /step have a consistent initialized world.
+    _WORLD.reset()
 
 
 class ResetRequest(BaseModel):
@@ -55,6 +61,8 @@ def reset(req: ResetRequest) -> ResetResponse:
 
 @app.post("/step", response_model=StepResponse)
 def step(req: StepRequest) -> StepResponse:
+    if _WORLD.state is None:
+        raise HTTPException(status_code=400, detail="Environment not initialized. Call /reset first.")
     obs, reward, done, info = _WORLD.step(req.action)
     return StepResponse(observation=obs, reward=reward, done=done, info=info)
 
