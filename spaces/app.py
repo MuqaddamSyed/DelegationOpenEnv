@@ -64,6 +64,7 @@ def run_episode(
     scenario: str,
     boss_personality: str,
     adversarial_mode: bool,
+    judge_mode: bool,
     max_turns: int,
     seed: int,
 ) -> Generator[Tuple[str, float, float, float, float, float, float], None, None]:
@@ -74,6 +75,14 @@ def run_episode(
     """
     env = DelegationWorld()
     rng = random.Random(int(seed))
+
+    if judge_mode:
+        # Deterministic stress test for reviewers.
+        scenario = ScenarioType.CRISIS_MANAGEMENT.name
+        boss_personality = BossPersonality.PASSIVE_AGGRESSIVE.name
+        adversarial_mode = True
+        seed = 4242
+        max_turns = min(int(max_turns), 70)
 
     sc = ScenarioType[scenario]
     bp = BossPersonality[boss_personality]
@@ -160,6 +169,7 @@ Production-grade agent hardening infrastructure: a 3-week executive-assistant si
                 scenario = gr.Dropdown(choices=[s.name for s in ScenarioType], value=ScenarioType.CONFERENCE_PLANNING.name, label="Scenario")
                 boss = gr.Dropdown(choices=[b.name for b in BossPersonality], value=BossPersonality.MICROMANAGER.name, label="Boss personality")
                 adversarial = gr.Checkbox(value=True, label="Adversarial mode")
+                judge_mode = gr.Checkbox(value=False, label="Judge mode (deterministic stress test)")
             with gr.Row():
                 max_turns = gr.Slider(10, 200, value=60, step=1, label="Max turns to run")
                 seed = gr.Number(value=0, precision=0, label="Seed")
@@ -177,7 +187,7 @@ Production-grade agent hardening infrastructure: a 3-week executive-assistant si
 
             run_btn.click(
                 fn=run_episode,
-                inputs=[scenario, boss, adversarial, max_turns, seed],
+                inputs=[scenario, boss, adversarial, judge_mode, max_turns, seed],
                 outputs=[log, task_completion, autonomy, priority, info_eff, budget, delegation],
             )
 

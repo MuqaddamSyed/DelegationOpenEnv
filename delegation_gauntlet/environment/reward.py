@@ -90,12 +90,23 @@ class PriorityAlignmentRubric:
         critical_backlog = pending_critical / init_c
         high_backlog = pending_high / init_h
 
-        s = 1.0 - (0.75 * critical_backlog + 0.25 * high_backlog)
+        # Anti-gaming: repeated do_nothing while critical items remain should score poorly.
+        do_nothing_ratio = float(st.do_nothing_actions) / float(max(1, st.decisions_total))
+        do_nothing_penalty = 0.0
+        if pending_critical > 0:
+            do_nothing_penalty = min(0.35, 0.8 * do_nothing_ratio)
+
+        s = 1.0 - (0.75 * critical_backlog + 0.25 * high_backlog + do_nothing_penalty)
         return RubricScore(
             name="priority_alignment",
             weight=self.weight,
             score=float(max(0.0, min(1.0, s))),
-            details={"pending_critical": pending_critical, "pending_high": pending_high},
+            details={
+                "pending_critical": pending_critical,
+                "pending_high": pending_high,
+                "do_nothing_ratio": do_nothing_ratio,
+                "do_nothing_penalty": do_nothing_penalty,
+            },
         )
 
 

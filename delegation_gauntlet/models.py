@@ -170,6 +170,7 @@ class WorldState(BaseModel):
 
     # Tracking for reward rubrics / adversary dynamics
     decisions_total: int = 0
+    do_nothing_actions: int = 0
     irreversible_actions: int = 0
     irreversible_without_approval: int = 0
     messages_read_ids: List[str] = Field(default_factory=list)

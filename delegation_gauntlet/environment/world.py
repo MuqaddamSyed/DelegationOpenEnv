@@ -103,6 +103,7 @@ class DelegationWorld:
                 "low": len([p for p in sc.initial_pending if p.priority == Priority.low]),
             },
             decisions_total=0,
+            do_nothing_actions=0,
             irreversible_actions=0,
             irreversible_without_approval=0,
             messages_read_ids=[],
@@ -286,6 +287,7 @@ class DelegationWorld:
             return res, not res.success
 
         # do_nothing
+        st.do_nothing_actions += 1
         return self._tools.do_nothing(st), False
 
     def _maybe_resolve_pending(self, st: WorldState, action_type: str) -> None:

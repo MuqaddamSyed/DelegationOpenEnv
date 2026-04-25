@@ -48,6 +48,27 @@ The novel signal is **autonomy calibration**:
 ![Reward curve](public/plots/reward_curve.png)
 ![Adversary curve](public/plots/adversary_curve.png)
 ![Rubric breakdown](public/plots/rubric_breakdown.png)
+![Adversary weights](public/plots/adversary_weights.png)
+
+### Baseline comparison (held-out seeds)
+| policy | reward | ask-rate | task completion | adversary success |
+|---|---:|---:|---:|---:|
+| random | TODO | TODO | TODO | TODO |
+| ask_always | TODO | TODO | TODO | TODO |
+| trained (GRPO) | TODO | TODO | TODO | TODO |
+
+Populate this table from `public/metrics/grpo_metrics.json` after your real training run.
+
+## Judge mode demo flow
+The HF Space includes **Judge mode** (deterministic stress test):
+
+1. Select **Live Episode**
+2. Enable **Judge mode**
+3. Click **Run Episode**
+
+This runs a fixed-seed adversarial crisis scenario and shows:
+- curveball injections in the live log
+- final rubric bars (including autonomy calibration)
 
 ## Running it
 ### Install
@@ -79,11 +100,20 @@ python tests/test_env.py
 python training/train_grpo.py --smoke-test
 ```
 
-### Full GRPO (optional deps)
+### Full TRL GRPO run (real training)
 ```bash
 pip install -e '.[train]'
-python training/train_grpo.py
+python training/train_grpo.py --train-grpo --model-name Qwen/Qwen2.5-1.5B-Instruct --steps 120 --eval-every 20 --episode-turns 60
 ```
+
+### Qwen policy eval compatibility mode
+```bash
+python training/train_grpo.py --qwen-eval --episodes 10 --model Qwen/Qwen2.5-0.5B-Instruct
+```
+
+This writes:
+- plots in `public/plots/`
+- JSON metrics in `public/metrics/`
 
 ## HF Space
 The Gradio demo lives at `spaces/app.py` with:
@@ -91,6 +121,14 @@ The Gradio demo lives at `spaces/app.py` with:
 - **Live Episode**: scenario/personality selection + adversarial toggle + live log + rubric bars
 - **Training Results**: embeds the 4 plots from `public/plots/`
 
+Space link: **TODO**
+
 ## Why this matters
 This is open-source, production-grade infrastructure for agent safety evaluation: a team can clone it and immediately start measuring autonomy calibration, adversarial robustness, and irreversible-tool safety before deploying tool-using agents.
+
+## Submission links (required)
+- HF Space: **TODO**
+- Colab notebook: **TODO**
+- 2-minute walkthrough video: **TODO**
+- blog/slides (optional): **TODO**
 

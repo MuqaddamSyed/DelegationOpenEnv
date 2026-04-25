@@ -1,0 +1,13 @@
+{
+  "eval_steps": [
+    10,
+    20
+  ],
+  "heldout_summary": {
+    "mean_reward": 0.425,
+    "mean_boss_ask_rate": 0.03333333333333333,
+    "mean_task_completion_rate": 0.8888888888888888,
+    "mean_adversary_success_rate": 0.9333333333333332,
+    "mean_budget_adherence_rate": 1.0
+  }
+}
