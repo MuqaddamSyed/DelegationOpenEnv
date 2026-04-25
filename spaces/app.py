@@ -67,7 +67,7 @@ def run_episode(
     judge_mode: bool,
     max_turns: int,
     seed: int,
-) -> Generator[Tuple[str, float, float, float, float, float, float], None, None]:
+) -> Generator[Tuple[str, float, float, float, float, float, float, float, float, float, float], None, None]:
     """
     Yields incremental UI updates:
       (log_text, task_completion, autonomy_calibration, priority_alignment,
@@ -95,7 +95,21 @@ def run_episode(
     # Initialize rubric bars
     _, breakdown0 = env.get_episode_reward(partial=True)
     rub0 = _format_rubrics(breakdown0)
-    yield ("\n".join(log_lines), rub0.get("task_completion", 0.0), rub0.get("autonomy_calibration", 0.0), rub0.get("priority_alignment", 0.0), rub0.get("information_efficiency", 0.0), rub0.get("budget_adherence", 0.0), rub0.get("delegation_quality", 0.0))
+    st0 = env.state
+    assert st0 is not None
+    yield (
+        "\n".join(log_lines),
+        rub0.get("task_completion", 0.0),
+        rub0.get("autonomy_calibration", 0.0),
+        rub0.get("priority_alignment", 0.0),
+        rub0.get("information_efficiency", 0.0),
+        rub0.get("budget_adherence", 0.0),
+        rub0.get("delegation_quality", 0.0),
+        float(breakdown0.get("reward", 0.0)),
+        float(st0.boss_interventions) / float(max(1, st0.decisions_total)),
+        float(st0.budget_spent) / float(max(1.0, st0.budget_limit)),
+        float(st0.irreversible_without_approval),
+    )
 
     for _ in range(int(max_turns)):
         st = env.state
@@ -125,6 +139,10 @@ def run_episode(
             rub.get("information_efficiency", 0.0),
             rub.get("budget_adherence", 0.0),
             rub.get("delegation_quality", 0.0),
+            float(breakdown.get("reward", 0.0)),
+            float(st.boss_interventions) / float(max(1, st.decisions_total)),
+            float(st.budget_spent) / float(max(1.0, st.budget_limit)),
+            float(st.irreversible_without_approval),
         )
 
         if done:
@@ -143,6 +161,10 @@ def run_episode(
         rubf.get("information_efficiency", 0.0),
         rubf.get("budget_adherence", 0.0),
         rubf.get("delegation_quality", 0.0),
+        float(breakdown_f.get("reward", 0.0)),
+        float(env.state.boss_interventions) / float(max(1, env.state.decisions_total)) if env.state else 0.0,
+        float(env.state.budget_spent) / float(max(1.0, env.state.budget_limit)) if env.state else 0.0,
+        float(env.state.irreversible_without_approval) if env.state else 0.0,
     )
 
 
@@ -153,52 +175,133 @@ def _plot_path(filename: str) -> str:
 def build_demo():
     # Import gradio lazily so non-Spaces environments with mismatched deps
     # can still import this module (HF Spaces will have correct deps).
+    os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
     import gradio as gr
 
-    with gr.Blocks(title="Delegation Gauntlet") as demo:
+    theme = gr.themes.Soft(
+        primary_hue="indigo",
+        secondary_hue="pink",
+        neutral_hue="slate",
+        radius_size="md",
+        font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"],
+    )
+    css = """
+    .hero {
+        border: 1px solid rgba(99, 102, 241, 0.22);
+        background: linear-gradient(135deg, rgba(79,70,229,0.13), rgba(236,72,153,0.10));
+        border-radius: 14px;
+        padding: 16px 18px;
+        margin-bottom: 12px;
+    }
+    .muted {
+        opacity: 0.9;
+        font-size: 0.95rem;
+    }
+    """
+
+    with gr.Blocks(title="Delegation Gauntlet", theme=theme, css=css) as demo:
         gr.Markdown(
             """
-## Delegation Gauntlet
-
-Production-grade agent hardening infrastructure: a 3-week executive-assistant simulation with **budget authority**, **simulated tools**, and a **deterministic adversary** that injects curveballs to provoke failures.
+<div class="hero">
+  <h2 style="margin:0 0 8px 0;">Delegation Gauntlet</h2>
+  <div class="muted">
+    OpenEnv hardening environment for tool-using agents: dynamic inbox, budget constraints, deterministic adversary, and explicit autonomy calibration.
+  </div>
+</div>
 """
         )
 
         with gr.Tab("Live Episode"):
+            gr.Markdown("Configure a run, then stream a full episode with adversarial interventions and rubric progress.")
             with gr.Row():
-                scenario = gr.Dropdown(choices=[s.name for s in ScenarioType], value=ScenarioType.CONFERENCE_PLANNING.name, label="Scenario")
-                boss = gr.Dropdown(choices=[b.name for b in BossPersonality], value=BossPersonality.MICROMANAGER.name, label="Boss personality")
-                adversarial = gr.Checkbox(value=True, label="Adversarial mode")
-                judge_mode = gr.Checkbox(value=False, label="Judge mode (deterministic stress test)")
+                with gr.Column(scale=1, min_width=320):
+                    scenario = gr.Dropdown(
+                        choices=[s.name for s in ScenarioType],
+                        value=ScenarioType.CONFERENCE_PLANNING.name,
+                        label="Scenario",
+                    )
+                    boss = gr.Dropdown(
+                        choices=[b.name for b in BossPersonality],
+                        value=BossPersonality.MICROMANAGER.name,
+                        label="Boss personality",
+                    )
+                    adversarial = gr.Checkbox(value=True, label="Adversarial mode")
+                    judge_mode = gr.Checkbox(value=False, label="Judge mode (deterministic stress test)")
+                    max_turns = gr.Slider(10, 200, value=60, step=1, label="Max turns")
+                    seed = gr.Number(value=0, precision=0, label="Seed")
+                    with gr.Row():
+                        run_btn = gr.Button("Run Episode", variant="primary")
+                        clear_btn = gr.Button("Clear Log")
+                    with gr.Row():
+                        preset_quick = gr.Button("Preset: Quick Demo")
+                        preset_judge = gr.Button("Preset: Judge Run")
+                        preset_stress = gr.Button("Preset: Stress Test")
+                    with gr.Accordion("What Judge Mode does", open=False):
+                        gr.Markdown(
+                            """
+- Forces `CRISIS_MANAGEMENT`
+- Uses `PASSIVE_AGGRESSIVE` boss
+- Enables adversarial injections
+- Fixes seed for reproducible judging
+"""
+                        )
+
+                with gr.Column(scale=2):
+                    log = gr.Textbox(label="Live Log", lines=22, interactive=False, autoscroll=True)
+
+            gr.Markdown("### Rubric Progress (0 to 1)")
             with gr.Row():
-                max_turns = gr.Slider(10, 200, value=60, step=1, label="Max turns to run")
-                seed = gr.Number(value=0, precision=0, label="Seed")
-                run_btn = gr.Button("Run Episode", variant="primary")
-
-            log = gr.Textbox(label="Live log", lines=18, interactive=False)
-
-            gr.Markdown("### Final rubric breakdown (0 to 1)")
-            task_completion = gr.Slider(0, 1, value=0, step=0.01, label="TaskCompletionRubric", interactive=False)
-            autonomy = gr.Slider(0, 1, value=0, step=0.01, label="AutonomyCalibrationRubric (Goldilocks zone)", interactive=False)
-            priority = gr.Slider(0, 1, value=0, step=0.01, label="PriorityAlignmentRubric", interactive=False)
-            info_eff = gr.Slider(0, 1, value=0, step=0.01, label="InformationEfficiencyRubric", interactive=False)
-            budget = gr.Slider(0, 1, value=0, step=0.01, label="BudgetAdherenceRubric", interactive=False)
-            delegation = gr.Slider(0, 1, value=0, step=0.01, label="DelegationQualityRubric", interactive=False)
+                with gr.Column():
+                    task_completion = gr.Slider(0, 1, value=0, step=0.01, label="Task completion", interactive=False)
+                    autonomy = gr.Slider(0, 1, value=0, step=0.01, label="Autonomy calibration", interactive=False)
+                    priority = gr.Slider(0, 1, value=0, step=0.01, label="Priority alignment", interactive=False)
+                with gr.Column():
+                    info_eff = gr.Slider(0, 1, value=0, step=0.01, label="Information efficiency", interactive=False)
+                    budget = gr.Slider(0, 1, value=0, step=0.01, label="Budget adherence", interactive=False)
+                    delegation = gr.Slider(0, 1, value=0, step=0.01, label="Delegation quality", interactive=False)
+            with gr.Row():
+                kpi_reward = gr.Number(value=0.0, label="Episode reward", interactive=False, precision=4)
+                kpi_ask_rate = gr.Number(value=0.0, label="Boss ask rate", interactive=False, precision=4)
+                kpi_budget = gr.Number(value=0.0, label="Budget used ratio", interactive=False, precision=4)
+                kpi_unapproved = gr.Number(value=0.0, label="Unapproved irreversible actions", interactive=False, precision=0)
 
             run_btn.click(
                 fn=run_episode,
                 inputs=[scenario, boss, adversarial, judge_mode, max_turns, seed],
-                outputs=[log, task_completion, autonomy, priority, info_eff, budget, delegation],
+                outputs=[log, task_completion, autonomy, priority, info_eff, budget, delegation, kpi_reward, kpi_ask_rate, kpi_budget, kpi_unapproved],
+            )
+            clear_btn.click(
+                fn=lambda: ("", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+                inputs=[],
+                outputs=[log, task_completion, autonomy, priority, info_eff, budget, delegation, kpi_reward, kpi_ask_rate, kpi_budget, kpi_unapproved],
+            )
+            preset_quick.click(
+                fn=lambda: (ScenarioType.CONFERENCE_PLANNING.name, BossPersonality.MICROMANAGER.name, True, False, 40, 7),
+                inputs=[],
+                outputs=[scenario, boss, adversarial, judge_mode, max_turns, seed],
+            )
+            preset_judge.click(
+                fn=lambda: (ScenarioType.CRISIS_MANAGEMENT.name, BossPersonality.PASSIVE_AGGRESSIVE.name, True, True, 70, 4242),
+                inputs=[],
+                outputs=[scenario, boss, adversarial, judge_mode, max_turns, seed],
+            )
+            preset_stress.click(
+                fn=lambda: (ScenarioType.BOARD_REVIEW.name, BossPersonality.HANDS_OFF.name, True, False, 120, 101),
+                inputs=[],
+                outputs=[scenario, boss, adversarial, judge_mode, max_turns, seed],
             )
 
         with gr.Tab("Training Results"):
-            gr.Markdown("### Plots generated by `python training/train_grpo.py --smoke-test`")
+            gr.Markdown("Plots generated by `training/train_grpo.py`")
             with gr.Row():
-                gr.Image(_plot_path("reward_curve.png"), label="reward_curve.png", show_label=True)
-                gr.Image(_plot_path("autonomy_curve.png"), label="autonomy_curve.png (hero)", show_label=True)
+                gr.Image(_plot_path("autonomy_curve.png"), label="Autonomy curve (hero)", show_label=True)
+                gr.Image(_plot_path("reward_curve.png"), label="Reward curve", show_label=True)
             with gr.Row():
-                gr.Image(_plot_path("adversary_curve.png"), label="adversary_curve.png", show_label=True)
-                gr.Image(_plot_path("rubric_breakdown.png"), label="rubric_breakdown.png", show_label=True)
+                gr.Image(_plot_path("adversary_curve.png"), label="Adversary success curve", show_label=True)
+                gr.Image(_plot_path("rubric_breakdown.png"), label="Rubric before vs after", show_label=True)
+            with gr.Row():
+                gr.Image(_plot_path("adversary_weights.png"), label="Adversary strategy weights", show_label=True)
+                gr.Image(_plot_path("before_after_summary.png"), label="Overall before/after summary", show_label=True)
 
             gr.Markdown(
                 """
