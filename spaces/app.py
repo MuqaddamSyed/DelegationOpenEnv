@@ -991,40 +991,11 @@ def _before_after_html() -> str:
 """.strip()
 
 
-def _plot_card_html(title: str, caption: str, chart_html: str) -> str:
+def _plot_shell_html(title: str, caption: str) -> str:
     return f"""
-<div class="dg-plot-card">
-  <div class="dg-plot-title">{title}</div>
-  <div class="dg-plot-frame">{chart_html}</div>
-  <div class="dg-plot-caption">{caption}</div>
-</div>
+<div class="dg-plot-title">{title}</div>
+<div class="dg-plot-caption">{caption}</div>
 """.strip()
-
-
-def _gallery_html() -> tuple[str, str, str, str]:
-    global _plotly_cdn_emitted  # noqa: PLW0603
-    _plotly_cdn_emitted = False
-    reward = _plot_card_html(
-        "Reward curve",
-        "Overall reward rises as the policy learns more reliable tradeoffs.",
-        _build_reward_html(first=True),
-    )
-    autonomy = _plot_card_html(
-        "Autonomy curve",
-        "The agent becomes more selective about when to act versus escalate.",
-        _build_autonomy_html(),
-    )
-    adversary = _plot_card_html(
-        "Adversary curve",
-        "Adaptive pressure exposes where attacks still succeed and where robustness improves.",
-        _build_adversary_html(),
-    )
-    rubric = _plot_card_html(
-        "Rubric breakdown",
-        "Improvement appears across task quality, calibration, and disciplined delegation.",
-        _build_rubric_html(),
-    )
-    return reward, autonomy, adversary, rubric
 
 
 _THEME_CSS = """
@@ -1406,14 +1377,19 @@ button.secondary:hover { border-color: rgba(111, 179, 200, 0.4) !important; colo
     color: var(--text);
     font-size: 15px;
     font-weight: 600;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
 }
-.dg-plot-frame { overflow: hidden; border-radius: 8px; }
 .dg-plot-caption {
     margin-top: 10px;
     color: var(--muted);
     font-size: 12px;
     line-height: 1.45;
+}
+.dg-plot-card .plot-container,
+.dg-plot-card .js-plotly-plot,
+.dg-plot-card .gradio-plot {
+    border-radius: 8px !important;
+    overflow: hidden !important;
 }
 
 .dg-footer-links {
@@ -1618,13 +1594,24 @@ def build_demo():
                 "Compact views of how policy behavior changes across training and evaluation.",
             )
         )
-        gallery_init = _gallery_html()
         with gr.Row():
-            chart_reward = gr.HTML(gallery_init[0])
-            chart_autonomy = gr.HTML(gallery_init[1])
+            with gr.Column():
+                with gr.Group(elem_classes=["dg-panel", "dg-plot-card"]):
+                    gr.HTML(_plot_shell_html("Reward curve", "Overall reward rises as the policy learns more reliable tradeoffs."))
+                    chart_reward = gr.Plot(value=build_reward_figure(), show_label=False)
+            with gr.Column():
+                with gr.Group(elem_classes=["dg-panel", "dg-plot-card"]):
+                    gr.HTML(_plot_shell_html("Autonomy curve", "The agent becomes more selective about when to act versus escalate."))
+                    chart_autonomy = gr.Plot(value=build_autonomy_figure(), show_label=False)
         with gr.Row():
-            chart_adversary = gr.HTML(gallery_init[2])
-            chart_rubric = gr.HTML(gallery_init[3])
+            with gr.Column():
+                with gr.Group(elem_classes=["dg-panel", "dg-plot-card"]):
+                    gr.HTML(_plot_shell_html("Adversary curve", "Adaptive pressure exposes where attacks still succeed and where robustness improves."))
+                    chart_adversary = gr.Plot(value=build_adversary_figure(), show_label=False)
+            with gr.Column():
+                with gr.Group(elem_classes=["dg-panel", "dg-plot-card"]):
+                    gr.HTML(_plot_shell_html("Rubric breakdown", "Improvement appears across task quality, calibration, and disciplined delegation."))
+                    chart_rubric = gr.Plot(value=build_rubric_figure(), show_label=False)
 
         with gr.Row():
             refresh_plots_btn = gr.Button("Refresh plots", size="sm", variant="secondary")
@@ -1676,8 +1663,13 @@ def build_demo():
             return "", _kpi_html(0.0, 0.0, 0.0, 0), _rubric_panel_html()
 
         def _refresh_gallery():
-            reward_html, autonomy_html, adversary_html, rubric_html = _gallery_html()
-            return _before_after_html(), reward_html, autonomy_html, adversary_html, rubric_html
+            return (
+                _before_after_html(),
+                build_reward_figure(),
+                build_autonomy_figure(),
+                build_adversary_figure(),
+                build_rubric_figure(),
+            )
 
         run_btn.click(
             fn=_run_episode_ui,
