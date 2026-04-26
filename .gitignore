@@ -11,3 +11,4 @@ build/
 *.egg-info/
 .mplconfig/
 
+public/plots/*.png
