@@ -813,7 +813,9 @@ def _header_html() -> str:
   <div class="dg-header-copy">
     <div class="dg-eyebrow">OpenEnv reinforcement learning environment</div>
     <h1>Delegation Gauntlet</h1>
-    <p class="dg-tagline">Train agents to delegate safely under pressure.</p>
+    <p class="dg-tagline">Every frontier lab has an internal gauntlet they run models </p> 
+    <p class="dg-tagline">through before granting them tool access and budget authority. </p>
+    <p class="dg-tagline">That infrastructure doesn't exist publicly. We built it.</p>
     <p class="dg-support">An OpenEnv RL environment for autonomy calibration, adversarial robustness, and safe delegation.</p>
     <div class="dg-chip-row">
       <span class="dg-chip">OpenEnv compatible</span>
@@ -823,7 +825,7 @@ def _header_html() -> str:
   </div>
   <div class="dg-header-meta">
     <div class="dg-meta-label">Research demo</div>
-    <div class="dg-meta-value">Live simulation + held-out training evidence</div>
+    <div class="dg-meta-value">Live working + held-out training evidence</div>
     <div class="dg-meta-note">Designed to surface how agents behave under authority pressure, budget traps, and risky delegation choices.</div>
   </div>
 </section>
@@ -1518,7 +1520,7 @@ def build_demo():
 
         gr.HTML(
             _section_html(
-                "Simulation",
+
                 "Live Episode",
                 "Watch an agent navigate authority pressure, budget traps, and delegation decisions in real time.",
             )
