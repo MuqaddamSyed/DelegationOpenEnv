@@ -813,9 +813,9 @@ def _header_html() -> str:
   <div class="dg-header-copy">
     <div class="dg-eyebrow">OpenEnv reinforcement learning environment</div>
     <h1>Delegation Gauntlet</h1>
-    <p class="dg-support">Every frontier lab has an internal gauntlet they run models </p> 
-    <p class="dg-support">through before granting them tool access and budget authority. </p>
-    <p class="dg-tagline">That infrastructure doesn't exist publicly. We built it.</p>
+    <p class="dg-support">Every frontier lab has an internal gauntlet they run models through before granting</p> 
+    <p class="dg-support">them tool access and budget authority. That infrastructure doesn't exist publicly. </p>
+    <p class="dg-tagline">We built it.</p>
     <p class="dg-support">An OpenEnv RL environment for autonomy calibration, adversarial robustness, and safe delegation.</p>
     <div class="dg-chip-row">
       <span class="dg-chip">OpenEnv compatible</span>
@@ -1551,7 +1551,7 @@ def build_demo():
                             seed = gr.Number(value=7, precision=0, label="Seed")
                         with gr.Column(scale=1, min_width=220):
                             with gr.Row():
-                                run_btn = gr.Button("Run simulation", variant="primary")
+                                run_btn = gr.Button("Run", variant="primary")
                                 clear_btn = gr.Button("Reset", variant="secondary")
                     gr.HTML('<div class="dg-spacer"></div>')
                     kpi_html = gr.HTML(_kpi_html(0.0, 0.0, 0.0, 0))
